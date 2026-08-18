@@ -1,0 +1,56 @@
+The Physical Layout: Where Everything Goes
+Think of your 2WD chassis as having a "Bottom Deck" for the mechanics and a "Top Deck" for the brains.
+
+
+Bottom Deck (Mechanics): The two DC motors, main rubber wheels, and the front caster wheel are mounted directly to the bottom of the acrylic base.
+
+
+Inner Shafts: The black slotted encoder discs must be pushed onto the inner shafts of the DC motors, pointing toward the center of the chassis.
+
+
+Rear-Center: Mount the L298N motor driver here, keeping it as close to the DC motors as possible to minimize messy wiring.
+
+
+The Perimeter (The Senses): Mount your three VL53L0X Time-of-Flight sensors on the outer edges of the chassis—one facing strictly front, one facing left, and one facing right.
+
+
+Top Deck (The Brains): Mount your breadboard (or perfboard later) on the top surface of the chassis. The ATmega32 development board, the ESP32 DevKit, and the 5V/3.3V LDO voltage regulators will all sit here.
+
+
+The Power Supply: Mount the 18650 battery holder securely on the top deck, ideally with a small toggle switch wired in line so you can easily cut power without ripping out batteries.
+
+The Wiring Map: What Connects to What
+Your robot operates as a master-slave system where power, movement, sensing, and logic are cleanly divided.
+
+
+Power Distribution: The positive wire from your 18650 battery pack connects to the 12V/VCC terminal on the L298N motor driver. The battery also connects to the LDO voltage regulators to step down the power safely to the 5V and 3.3V logic levels required by your microcontrollers and sensors. All components (L298N, ATmega32, ESP32, sensors) must share a common ground (GND).
+
+
+Movement Muscle: The L298N connects directly to the left and right DC motors.
+
+
+Movement Brain (ATmega32): The ATmega32 connects its standard GPIO pins to the L298N's IN1/IN2/IN3/IN4 pins to control direction. It connects its PWM channels to the L298N's ENA/ENB pins to control dynamic speed.
+
+
+Distance Tracking: The left and right wheel encoders connect directly to the ATmega32's External Interrupt pins (INT0 and INT1) to track the physical distance traveled.
+
+
+Sensor Array (ESP32 & ATmega32): The three ToF sensors communicate via the I2C bus with the ESP32. However, to prevent I2C address conflicts, the XSHUT reset pin of each sensor must be wired to separate GPIO pins on the ATmega32 to wake them up sequentially on boot.
+
+
+The Bridge (UART): The ESP32 and ATmega32 talk to each other by connecting their RX and TX pins, establishing a serial UART connection.
+
+Step-by-Step Execution Plan
+To survive your strict 5-6 week lab timeline, do not build everything at once. Follow this sequence:
+
+
+Locomotion & PID Tuning: Start by assembling the chassis, wiring the L298N to the ATmega32, and reading the wheel encoders. You must program the ATmega32's PID loop to force the car to drive perfectly straight for 1 meter before doing anything else.
+
+
+Algorithm Simulation: While the robot is being built, write and test the Flood Fill algorithm on a PC using standard C++ in a virtual terminal grid.
+
+
+Sensor & I2C Calibration: Wire the ToF sensors to the ESP32 (and XSHUT pins) on a breadboard. Calibrate the sensors by measuring physical distances with a ruler and comparing them to the serial monitor output.
+
+
+Full System Integration: Move the C++ Flood Fill code onto the ESP32. Have the ESP32 send high-level string commands (like "Move Forward 1 cell") over UART to the ATmega32, which will execute the physical movement.

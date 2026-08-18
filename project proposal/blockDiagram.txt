@@ -1,0 +1,22 @@
+[ 18650 Battery Pack & Voltage Regulators ]
+                 | (Supplies 5V and 3.3V)
+                 v
++---------------------------------+       UART (RX/TX)       +---------------------------------+
+|                                 | <======================> |                                 |
+|            ATmega32             |    Movement Commands     |             ESP32               |
+|      (Master / Movement)        |                          |      (Slave / Logic & AI)       |
+|                                 |                          |                                 |
++---------------------------------+                          +---------------------------------+
+    |                     ^                                           |                 |
+    | PWM & GPIO          | External Interrupts                       | I2C (SDA/SCL)   | GPIO (XSHUT)
+    v                     |                                           v                 v
++-----------------+ +-----------------+                      +---------------------------------+
+|   L298N Motor   | |  Wheel Encoders |                      |   3x VL53L0X ToF Sensors        |
+|     Driver      | |  (Left & Right) |                      |   (Front, Left, Right)          |
++-----------------+ +-----------------+                      +---------------------------------+
+    |
+    | Motor Power (Out)
+    v
++-----------------+
+| 2WD DC Motors   |
++-----------------+
