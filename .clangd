@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: [-I/usr/lib/avr/include, --target=avr, -mmcu=atmega32, -DF_CPU=1000000UL]
