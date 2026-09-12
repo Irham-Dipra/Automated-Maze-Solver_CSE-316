@@ -24,8 +24,8 @@
 *   IN3 - Atmega PB2 (3)
 *   IN4 - Atmega PB4 (5)
 
-*   ENA - Atmega PD5 (14)
-*   ENB - Atmega PD4 (13)
+*   ENA - Atmega PD5 (19)
+*   ENB - Atmega PD4 (18)
 
 
 ## Atmega connections
@@ -41,9 +41,10 @@
 *   VIN - Power 2
 *   ESP Gnd 1 - Gnd 1
 
+## Logic Level Shifter (UART Bridge)
 
-
-
-
-
-
+*   HV - Power 1 (ATmega 5V)
+*   LV - ESP32 3V3 Pin
+*   GND (both) - Gnd 1 / Gnd 2
+*   LV1 - ESP32 TX2 (Pin 24)
+*   HV1 - ATmega RXD (PD0 / Pin 14)
