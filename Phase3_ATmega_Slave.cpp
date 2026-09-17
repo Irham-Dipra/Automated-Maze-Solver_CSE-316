@@ -6,9 +6,7 @@
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 8UL))) - 1)
 
 // ----- MOTOR SPEED CALIBRATION -----
-// Adjust these if the car pulls to one side!
-#define SPEED_LEFT 145   // 0 to 255
-#define SPEED_RIGHT 200  // 0 to 255
+// Speeds are now dynamically received from ESP32 for ALL movements!
 
 void uart_init() {
     UCSRA |= (1 << U2X); // double speed mode
@@ -42,39 +40,11 @@ void stop_motors() {
     OCR1B = 0;
 }
 
-void move_forward() {
-    PORTB |= (1<<PB0);  PORTB &= ~(1<<PB1); // Left Forward
-    PORTB |= (1<<PB2);  PORTB &= ~(1<<PB4); // Right Forward
-    OCR1A = SPEED_LEFT; 
-    OCR1B = SPEED_RIGHT;
-}
-
 void move_forward_pid(unsigned char left_pwm, unsigned char right_pwm) {
     PORTB |= (1<<PB0);  PORTB &= ~(1<<PB1); // Left Forward
     PORTB |= (1<<PB2);  PORTB &= ~(1<<PB4); // Right Forward
     OCR1A = left_pwm; 
     OCR1B = right_pwm;
-}
-
-void move_backward() {
-    PORTB &= ~(1<<PB0); PORTB |= (1<<PB1); // Left Backward
-    PORTB &= ~(1<<PB2); PORTB |= (1<<PB4); // Right Backward
-    OCR1A = SPEED_LEFT; 
-    OCR1B = SPEED_RIGHT;
-}
-
-void turn_left() {
-    PORTB &= ~(1<<PB0); PORTB |= (1<<PB1); // Left Backward
-    PORTB |= (1<<PB2);  PORTB &= ~(1<<PB4); // Right Forward
-    OCR1A = SPEED_LEFT; 
-    OCR1B = SPEED_RIGHT;
-}
-
-void turn_right() {
-    PORTB |= (1<<PB0);  PORTB &= ~(1<<PB1); // Left Forward
-    PORTB &= ~(1<<PB2); PORTB |= (1<<PB4); // Right Backward
-    OCR1A = SPEED_LEFT; 
-    OCR1B = SPEED_RIGHT;
 }
 
 int main(void) {
@@ -85,18 +55,22 @@ int main(void) {
 
     unsigned char rx_state = 0;
     unsigned char left_pwm = 0;
+    unsigned char current_cmd = 0;
+    unsigned int timeout_counter = 0;
 
     while(1) {
         if (uart_available()) {
             unsigned char byte_in = uart_read();
+            timeout_counter = 0; // Reset timeout on successful read
             
             if (rx_state == 0) {
-                if (byte_in == 'P') rx_state = 1;
-                else if (byte_in == 'S') stop_motors();
-                else if (byte_in == 'L') turn_left();
-                else if (byte_in == 'R') turn_right();
-                else if (byte_in == 'F') move_forward(); // Fallback
-                else if (byte_in == 'B') move_backward(); // Fallback
+                if (byte_in == 'S') {
+                    stop_motors();
+                }
+                else if (byte_in == 'P' || byte_in == 'L' || byte_in == 'R' || byte_in == 'B' || byte_in == 'F') {
+                    current_cmd = byte_in;
+                    rx_state = 1;
+                }
             }
             else if (rx_state == 1) {
                 left_pwm = byte_in;
@@ -104,8 +78,39 @@ int main(void) {
             }
             else if (rx_state == 2) {
                 unsigned char right_pwm = byte_in;
-                move_forward_pid(left_pwm, right_pwm);
+                
+                if (current_cmd == 'P' || current_cmd == 'F') {
+                    move_forward_pid(left_pwm, right_pwm);
+                }
+                else if (current_cmd == 'L') {
+                    PORTB &= ~(1<<PB0); PORTB |= (1<<PB1); // Left Backward
+                    PORTB |= (1<<PB2);  PORTB &= ~(1<<PB4); // Right Forward
+                    OCR1A = left_pwm; OCR1B = right_pwm;
+                }
+                else if (current_cmd == 'R') {
+                    PORTB |= (1<<PB0);  PORTB &= ~(1<<PB1); // Left Forward
+                    PORTB &= ~(1<<PB2); PORTB |= (1<<PB4); // Right Backward
+                    OCR1A = left_pwm; OCR1B = right_pwm;
+                }
+                else if (current_cmd == 'B') {
+                    PORTB &= ~(1<<PB0); PORTB |= (1<<PB1); // Left Backward
+                    PORTB &= ~(1<<PB2); PORTB |= (1<<PB4); // Right Backward
+                    OCR1A = left_pwm; OCR1B = right_pwm;
+                }
+                
                 rx_state = 0; // Reset state machine, ready for next command!
+            }
+        } else {
+            // UART TIMEOUT SYNC RECOVERY
+            // If we receive a partial packet, we wait up to 10ms for the next byte.
+            // If it doesn't arrive, we abort and reset the state machine!
+            if (rx_state > 0) {
+                _delay_us(100);
+                timeout_counter++;
+                if (timeout_counter > 100) { // 10ms timeout
+                    rx_state = 0;
+                    timeout_counter = 0;
+                }
             }
         }
     }

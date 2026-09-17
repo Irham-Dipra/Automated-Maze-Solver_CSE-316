@@ -4,6 +4,10 @@
 
 BluetoothSerial SerialBT;
 
+const int BASE_LEFT_SPEED = 145; 
+const int BASE_RIGHT_SPEED = 145; // Lower this from 200 to match the left side!
+
+
 #define FRONT_XSHUT_PIN 19
 #define LEFT_XSHUT_PIN 18
 #define RIGHT_XSHUT_PIN 4
@@ -13,14 +17,33 @@ Adafruit_VL53L0X sensorLeft = Adafruit_VL53L0X();
 Adafruit_VL53L0X sensorRight = Adafruit_VL53L0X();
 
 // --- PID CONTROL VARIABLES ---
-float Kp = 0.2;  // Proportional Gain (Lowered from 0.5 to stop violent wiggling)
+float Kp = 0.2;  // Proportional Gain
 float Kd = 0.1;  // Derivative Gain
 float Ki = 0.0;  // Integral Gain
 int previous_error = 0;
 int total_error = 0;
-const int TARGET_DISTANCE = 107; // Perfect center of a 320mm maze
-const int BASE_LEFT_SPEED = 145; // Calibrated base speeds
-const int BASE_RIGHT_SPEED = 200;
+const int TARGET_DISTANCE = 128; // Perfect center of your 360mm maze! (360 - 105) / 2
+
+// --- DYNAMIC CALIBRATION VARIABLES ---
+int BASE_LEFT = 200; 
+int BASE_RIGHT = 30;
+int TURN_L = 180;   // Power needed to overcome sideways friction during turns!
+int TURN_R = 150;   // Power needed to overcome sideways friction during turns!
+int DELAY_90_RIGHT = 390;
+int DELAY_90_LEFT = 390;
+int DELAY_180_U = 780;
+int FRONT_BRAKE_DIST = 260;
+
+bool system_halted = false;
+
+// Function to print current state
+void printState() {
+    SerialBT.println("\nCurrent: BL=" + String(BASE_LEFT) + " | BR=" + String(BASE_RIGHT) + 
+                     " | XL=" + String(TURN_L) + " | XR=" + String(TURN_R) +
+                     " | TR=" + String(DELAY_90_RIGHT) + " | TL=" + String(DELAY_90_LEFT) + 
+                     " | TU=" + String(DELAY_180_U) + " | FD=" + String(FRONT_BRAKE_DIST) +
+                     " | P=" + String(Kp) + " | D=" + String(Kd) + " | I=" + String(Ki));
+}
 
 void setup() {
   Serial.begin(115200);
@@ -55,68 +78,106 @@ void setup() {
   sensorRight.begin(0x32);
   
   // --- INTERACTIVE STARTUP PROMPT ---
-  Serial.println("Waiting for Bluetooth connection...");
-  while (!SerialBT.hasClient()) {
-      delay(500); // Wait infinitely until the user's phone connects!
-  }
-  delay(1000); // Give the phone terminal an extra second to initialize
+  SerialBT.println("Waiting for Bluetooth connection...");
+  while (!SerialBT.hasClient()) delay(500);
+  delay(1000);
   
-  unsigned long last_menu_time = 0;
+  SerialBT.println("\n=== PHASE 3 (PID) CALIBRATION MENU ===");
+  SerialBT.println("  BL:180  -> Base Left Speed (Straight)");
+  SerialBT.println("  BR:10   -> Base Right Speed (Straight)");
+  SerialBT.println("  XL:180  -> Turn Left Power (Pivot)");
+  SerialBT.println("  XR:150  -> Turn Right Power (Pivot)");
+  SerialBT.println("  FD:260  -> Front Brake Distance");
+  SerialBT.println("  P:0.3   -> PID P-Gain");
+  SerialBT.println("  D:0.2   -> PID D-Gain");
+  SerialBT.println("  START   -> Begin driving");
+  SerialBT.println("  STOP    -> Halt the car (on the fly)");
+  SerialBT.println("======================================");
+  printState();
   
-  while (true) {
-      // Reprint the menu every 5 seconds so it never gets lost!
-      if (millis() - last_menu_time > 5000) {
-          SerialBT.println("\n--- PID TUNING MENU ---");
-          SerialBT.println("Current Values: Kp=" + String(Kp) + " | Kd=" + String(Kd) + " | Ki=" + String(Ki));
-          SerialBT.println("To change Kp, send: P:0.3");
-          SerialBT.println("To change Kd, send: D:0.2");
-          SerialBT.println("To start driving, send: START");
-          last_menu_time = millis();
-      }
-      
+  bool is_running = false;
+  while (!is_running) {
       if (SerialBT.available()) {
           String msg = SerialBT.readStringUntil('\n');
           msg.trim();
           
           if (msg.equalsIgnoreCase("START")) {
-              SerialBT.println("\n>>> STARTING MAZE SOLVER! <<<");
-              break;
+              SerialBT.println("\n>>> STARTING PID MAZE SOLVER! <<<");
+              previous_error = 0;
+              total_error = 0;
+              is_running = true;
           }
-          else if (msg.startsWith("P:")) {
-              Kp = msg.substring(2).toFloat();
-              SerialBT.println("\n>>> Kp UPDATED TO: " + String(Kp));
-              last_menu_time = 0; // Force menu to reprint immediately to show new values
-          }
-          else if (msg.startsWith("D:")) {
-              Kd = msg.substring(2).toFloat();
-              SerialBT.println("\n>>> Kd UPDATED TO: " + String(Kd));
-              last_menu_time = 0; 
-          }
-          else if (msg.startsWith("I:")) {
-              Ki = msg.substring(2).toFloat();
-              SerialBT.println("\n>>> Ki UPDATED TO: " + String(Ki));
-              last_menu_time = 0;
-          }
+          else if (msg.startsWith("BL:")) { BASE_LEFT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("BR:")) { BASE_RIGHT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("XL:")) { TURN_L = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("XR:")) { TURN_R = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TR:")) { DELAY_90_RIGHT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TL:")) { DELAY_90_LEFT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TU:")) { DELAY_180_U = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("FD:")) { FRONT_BRAKE_DIST = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("P:")) { Kp = msg.substring(2).toFloat(); printState(); }
+          else if (msg.startsWith("D:")) { Kd = msg.substring(2).toFloat(); printState(); }
+          else if (msg.startsWith("I:")) { Ki = msg.substring(2).toFloat(); printState(); }
       }
       delay(50);
   }
 }
 
 bool is_blocked(VL53L0X_RangingMeasurementData_t measure, int dist, int threshold) {
-  if (measure.RangeStatus == 4) return false;
+  if (measure.RangeStatus != 0) return false; // Ignore glitches (1, 2, 3) AND Out of Range (4)!
   if (dist < threshold) return true;
   return false;
 }
 
 void loop() {
+  static int power_ramp = 30; // Start at 30% power to prevent BOR, ramp up dynamically!
+  
+  // Check for Bluetooth Commands on the fly
+  if (SerialBT.available()) {
+      String msg = SerialBT.readStringUntil('\n');
+      msg.trim();
+      
+      if (msg.equalsIgnoreCase("STOP") && !system_halted) {
+          SerialBT.println("\n>>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<");
+          system_halted = true;
+          Serial2.print('S');
+      }
+      else if (msg.equalsIgnoreCase("START") && system_halted) {
+          SerialBT.println("\n>>> RESUMING DRIVE WITH NEW CALIBRATION! <<<");
+          previous_error = 0;
+          total_error = 0;
+          power_ramp = 30; // Reset soft start!
+          system_halted = false;
+      }
+      else if (system_halted) {
+          // Allow recalibration while stopped!
+          if (msg.startsWith("BL:")) { BASE_LEFT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("BR:")) { BASE_RIGHT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("XL:")) { TURN_L = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("XR:")) { TURN_R = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TR:")) { DELAY_90_RIGHT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TL:")) { DELAY_90_LEFT = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("TU:")) { DELAY_180_U = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("FD:")) { FRONT_BRAKE_DIST = msg.substring(3).toInt(); printState(); }
+          else if (msg.startsWith("P:")) { Kp = msg.substring(2).toFloat(); printState(); }
+          else if (msg.startsWith("D:")) { Kd = msg.substring(2).toFloat(); printState(); }
+          else if (msg.startsWith("I:")) { Ki = msg.substring(2).toFloat(); printState(); }
+      }
+  }
+
+  if (system_halted) {
+      delay(100);
+      return; // Skip driving logic entirely
+  }
+
   VL53L0X_RangingMeasurementData_t measureFront, measureLeft, measureRight;
   
   // Read Front Sensor
   sensorFront.rangingTest(&measureFront, false);
   int front_dist = measureFront.RangeMilliMeter;
   
-  // FRONT THRESHOLD: Increased to 260mm! The car is heavy and moving fast, it needs room to stop!
-  bool front_blocked = is_blocked(measureFront, front_dist, 260);
+  // FRONT THRESHOLD
+  bool front_blocked = is_blocked(measureFront, front_dist, FRONT_BRAKE_DIST);
 
   if (front_blocked) {
       // 1. We hit a wall!
@@ -125,41 +186,45 @@ void loop() {
       // Read side sensors to see the exact state of the intersection
       sensorLeft.rangingTest(&measureLeft, false);
       sensorRight.rangingTest(&measureRight, false);
-      int left_dist = (measureLeft.RangeStatus == 4) ? 8190 : measureLeft.RangeMilliMeter;
-      int right_dist = (measureRight.RangeStatus == 4) ? 8190 : measureRight.RangeMilliMeter;
+      int left_dist = (measureLeft.RangeStatus != 0) ? 8190 : measureLeft.RangeMilliMeter;
+      int right_dist = (measureRight.RangeStatus != 0) ? 8190 : measureRight.RangeMilliMeter;
       
       String s1 = "MAZE: Wall Ahead! STOPPING... [F:" + String(front_dist) + " L:" + String(left_dist) + " R:" + String(right_dist) + "]";
       Serial.println(s1);
       SerialBT.println(s1);
       delay(2000); // DEBUG WAIT: Stop for 2 seconds before deciding so the user can watch!
       
-      // SIDE THRESHOLD: Increased to 250mm! 
-      // If the car is 105mm wide in a 320mm maze, and drifts all the way to the left, 
-      // the right wall is ~215mm away. 250mm guarantees we NEVER mistake a wide hallway for an open intersection!
+      // SIDE THRESHOLD
       bool left_blocked = is_blocked(measureLeft, left_dist, 250);
       bool right_blocked = is_blocked(measureRight, right_dist, 250);
 
       // 3. The Right-Hand Rule Maze Algorithm
       if (!right_blocked) {
           Serial2.print('R');
+          Serial2.write((uint8_t)TURN_L);
+          Serial2.write((uint8_t)TURN_R);
           String s6 = "MAZE: Right is open! Turn RIGHT. [L:" + String(left_dist) + " R:" + String(right_dist) + "]";
           Serial.println(s6);
           SerialBT.println(s6);
-          delay(390); // 90-degree Right Turn (Restored to overcome static friction!)
+          delay(DELAY_90_RIGHT);
       }
       else if (!left_blocked) {
           Serial2.print('L');
+          Serial2.write((uint8_t)TURN_L);
+          Serial2.write((uint8_t)TURN_R);
           String s7 = "MAZE: Left is open! Turn LEFT. [L:" + String(left_dist) + " R:" + String(right_dist) + "]";
           Serial.println(s7);
           SerialBT.println(s7);
-          delay(390); // 90-degree Left Turn (Restored)
+          delay(DELAY_90_LEFT);
       }
       else {
           Serial2.print('R');
+          Serial2.write((uint8_t)TURN_L);
+          Serial2.write((uint8_t)TURN_R);
           String s8 = "MAZE: Dead End! 180 U-TURN. [L:" + String(left_dist) + " R:" + String(right_dist) + "]";
           Serial.println(s8);
           SerialBT.println(s8);
-          delay(780); // 180-degree turn (Restored)
+          delay(DELAY_180_U);
       }
       
       // 4. Stop motors after the primary turn
@@ -173,17 +238,21 @@ void loop() {
       bool reversed_once = false;
       
       sensorFront.rangingTest(&measureFront, false);
-      int last_f = (measureFront.RangeStatus == 4) ? 8190 : measureFront.RangeMilliMeter;
+      int last_f = (measureFront.RangeStatus != 0) ? 8190 : measureFront.RangeMilliMeter;
       
-      while (sweep_count < 15) { // increased safety limit to allow full sweeping
+      while (sweep_count < 20) { // Increased safety limit
           // Twitch in search direction
-          Serial2.print(search_dir); 
-          delay(40); // tiny micro-twitch
+          Serial2.print(search_dir);
+          Serial2.write((uint8_t)TURN_L);
+          Serial2.write((uint8_t)TURN_R); 
+          delay(60); // INCREASED twitch time so the heavy car actually moves!
           Serial2.print('S'); 
           delay(150); // wait for chassis to stop rocking
           
           sensorFront.rangingTest(&measureFront, false);
-          int new_f = (measureFront.RangeStatus == 4) ? 8190 : measureFront.RangeMilliMeter;
+          int new_f = (measureFront.RangeStatus != 0) ? 8190 : measureFront.RangeMilliMeter;
+          
+          SerialBT.println("  [Sweep " + String(sweep_count+1) + "] Twitched " + String(search_dir) + " -> New F:" + String(new_f));
           
           if (new_f < last_f) {
               // The distance got shorter! We are turning INTO the wall.
@@ -191,10 +260,11 @@ void loop() {
                   // It was our very first guess, and we guessed wrong. 
                   search_dir = (search_dir == 'L') ? 'R' : 'L';
                   reversed_once = true;
-                  SerialBT.println("ALIGN: Bad first guess. Reversing sweep to " + String(search_dir));
+                  SerialBT.println("  ALIGN: Bad first guess. Reversing sweep to " + String(search_dir));
                   
                   // Undo the bad twitch to return to the starting position
-                  Serial2.print(search_dir); delay(40); Serial2.print('S'); delay(150);
+                  Serial2.print(search_dir); Serial2.write((uint8_t)TURN_L); Serial2.write((uint8_t)TURN_R);
+                  delay(60); Serial2.print('S'); delay(150);
                   // Don't update last_f, let it try the new direction on the next loop
               } 
               else {
@@ -202,7 +272,8 @@ void loop() {
                   char undo_dir = (search_dir == 'L') ? 'R' : 'L';
                   
                   // Undo the overshoot twitch to return to the absolute peak!
-                  Serial2.print(undo_dir); delay(40); Serial2.print('S'); delay(150);
+                  Serial2.print(undo_dir); Serial2.write((uint8_t)TURN_L); Serial2.write((uint8_t)TURN_R);
+                  delay(60); Serial2.print('S'); delay(150);
                   SerialBT.println("ALIGN: Peak found & Locked! [F:" + String(last_f) + "]");
                   break;
               }
@@ -220,9 +291,14 @@ void loop() {
           sweep_count++;
       }
       
-      if (sweep_count >= 15) {
+      if (sweep_count >= 20) {
           SerialBT.println("ALIGN: Sweep limit reached. Resuming.");
       }
+
+      // RESET PID MEMORY SO IT DOESN'T SWERVE AFTER THE TURN!
+      previous_error = 0;
+      total_error = 0;
+      power_ramp = 30; // Trigger non-blocking soft start
 
       delay(2000); // DEBUG WAIT: Stop for 2 seconds so the user can admire the perfectly aligned car!
   } 
@@ -232,15 +308,15 @@ void loop() {
       sensorRight.rangingTest(&measureRight, false);
       
       // --- FULL PID CONTROL LOOP ---
-      int left_dist = (measureLeft.RangeStatus == 4) ? 8190 : measureLeft.RangeMilliMeter;
-      int right_dist = (measureRight.RangeStatus == 4) ? 8190 : measureRight.RangeMilliMeter;
+      int left_dist = (measureLeft.RangeStatus != 0) ? 8190 : measureLeft.RangeMilliMeter;
+      int right_dist = (measureRight.RangeStatus != 0) ? 8190 : measureRight.RangeMilliMeter;
       
       int error = 0;
       
       // Dynamic Single-Wall Tracking (Handles Open Intersections!)
       if (left_dist < 250 && right_dist < 250) {
           // Dual Wall: standard tracking
-          error = left_dist - right_dist;
+          error = (left_dist - right_dist) / 2;
       } 
       else if (left_dist < 250 && right_dist >= 250) {
           // Right wall missing! Hug the left wall
@@ -265,22 +341,36 @@ void loop() {
       previous_error = error;
       
       // 2. Apply Adjustment to Calibrated Base Speeds
-      int new_left = BASE_LEFT_SPEED - adjustment;
-      int new_right = BASE_RIGHT_SPEED + adjustment;
+      int new_left = BASE_LEFT - adjustment;
+      int new_right = BASE_RIGHT + adjustment;
       
-      // 3. Clamp Speeds (0 to 255) to prevent overflow/stalling
+      // 3. Clamp Speeds (0 to 255) Since ATmega UART timeout handles 0!
       if (new_left > 255) new_left = 255;
       if (new_left < 0) new_left = 0;
       if (new_right > 255) new_right = 255;
       if (new_right < 0) new_right = 0;
       
+      // --- DYNAMIC NON-BLOCKING SOFT START ---
+      // This allows the PID to aggressively steer the car *WHILE* ramping up power!
+      if (power_ramp < 100) {
+          power_ramp += 10; // Ramp up over ~7 cycles
+      }
+      
+      int final_left = (new_left * power_ramp) / 100;
+      int final_right = (new_right * power_ramp) / 100;
+      
       // 4. Send Dynamic PWM Command over UART
       Serial2.print('P');
-      Serial2.write((uint8_t)new_left);
-      Serial2.write((uint8_t)new_right);
+      Serial2.write((uint8_t)final_left);
+      Serial2.write((uint8_t)final_right);
+      
+      // Determine Steering Direction for Logs
+      String steer_dir = "(Straight)";
+      if (adjustment < -10) steer_dir = "(Steering Right)";
+      else if (adjustment > 10) steer_dir = "(Steering Left)";
       
       // Print PID telemetry for user debugging!
-      String s_pid = "PID -> Err:" + String(error) + " Adj:" + String(adjustment) + " [L:" + String(new_left) + " R:" + String(new_right) + "]";
+      String s_pid = "PID -> Err:" + String(error) + " Adj:" + String(adjustment) + " " + steer_dir + " [PWM_L:" + String(final_left) + " PWM_R:" + String(final_right) + "]";
       Serial.println(s_pid);
       SerialBT.println(s_pid);
   }

@@ -1,0 +1,115 @@
+07:37:05.783 Connecting to Maze_Calibrator ...
+07:37:07.105 Connected
+07:37:08.311 
+07:37:08.311 === HARDWARE CALIBRATION MENU ===
+07:37:08.320 Commands:
+07:37:08.320   BL:150  -> Base Left Speed
+07:37:08.320   BR:150  -> Base Right Speed
+07:37:08.320   TR:400  -> Turn Right Delay
+07:37:08.320   TL:400  -> Turn Left Delay
+07:37:08.320   TU:800  -> U-Turn Delay
+07:37:08.320   FD:260  -> Front Brake Distance
+07:37:08.320   START   -> Begin driving
+07:37:08.320   STOP    -> Halt the car
+07:37:08.320 =================================
+07:37:08.320 
+07:37:08.320 Current: BL=128 | BR=145 | TR=390 | TL=390 | TU=780 | FD=260
+07:37:23.512 BL:255
+07:37:23.603 
+07:37:23.603 Current: BL=255 | BR=145 | TR=390 | TL=390 | TU=780 | FD=260
+07:37:31.963 BR:80
+07:37:32.199 
+07:37:32.199 Current: BL=255 | BR=80 | TR=390 | TL=390 | TU=780 | FD=260
+07:37:43.603 FD:280
+07:37:48.060 FD:280
+07:37:49.326 FD:280
+07:37:53.836 START
+07:37:53.895 
+07:37:53.895 >>> STARTING BLIND CALIBRATION DRIVE <<<
+07:37:54.035 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:37:54.271 BLIND DRIVE: [F:8190 L:117 R:120]
+07:37:54.440 BLIND DRIVE: [F:8190 L:98 R:189]
+07:37:54.598 
+07:37:54.598 CORNER DETECTED! [F:78 L:78 R:8190]
+07:37:56.619 Blind Turning Right...
+07:37:56.999 Turn complete! Check the physical angle!
+07:37:59.541 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:37:59.542 BLIND DRIVE: [F:8190 L:151 R:178]
+07:37:59.667 BLIND DRIVE: [F:8190 L:143 R:116]
+07:37:59.771 BLIND DRIVE: [F:8190 L:188 R:72]
+07:37:59.926 
+07:37:59.926 CORNER DETECTED! [F:163 L:8190 R:33]
+07:38:00.234 STOP
+07:38:01.941 Blind Turning Left...
+07:38:02.325 Turn complete! Check the physical angle!
+07:38:04.380 
+07:38:04.380 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+07:38:27.121 BR:20
+07:38:27.471 
+07:38:27.471 Current: BL=255 | BR=20 | TR=390 | TL=390 | TU=780 | FD=260
+07:38:31.954 START
+07:38:32.060 
+07:38:32.060 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+07:38:32.176 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:38:32.424 BLIND DRIVE: [F:8190 L:126 R:108]
+07:38:32.590 BLIND DRIVE: [F:8190 L:102 R:164]
+07:38:32.777 BLIND DRIVE: [F:8190 L:79 R:178]
+07:38:32.940 BLIND DRIVE: [F:8190 L:62 R:191]
+07:38:33.172 BLIND DRIVE: [F:8190 L:53 R:199]
+07:38:33.291 BLIND DRIVE: [F:8190 L:46 R:202]
+07:38:33.454 BLIND DRIVE: [F:8190 L:45 R:208]
+07:38:33.623 BLIND DRIVE: [F:8190 L:49 R:202]
+07:38:33.799 BLIND DRIVE: [F:8190 L:48 R:201]
+07:38:33.972 BLIND DRIVE: [F:8190 L:48 R:8190]
+07:38:34.150 
+07:38:34.150 CORNER DETECTED! [F:173 L:70 R:8190]
+07:38:36.171 Blind Turning Right...
+07:38:36.532 Turn complete! Check the physical angle!
+07:38:38.914 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:38:38.972 BLIND DRIVE: [F:8190 L:90 R:8190]
+07:38:39.128 BLIND DRIVE: [F:8190 L:83 R:8190]
+07:38:39.289 BLIND DRIVE: [F:8190 L:88 R:150]
+07:38:39.469 BLIND DRIVE: [F:8190 L:87 R:150]
+07:38:39.634 BLIND DRIVE: [F:8190 L:90 R:168]
+07:38:39.799 BLIND DRIVE: [F:8190 L:97 R:157]
+07:38:39.974 
+07:38:39.974 CORNER DETECTED! [F:158 L:99 R:143]
+07:38:41.994 Blind U-Turn...
+07:38:42.758 Turn complete! Check the physical angle!
+07:38:44.930 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:38:45.181 BLIND DRIVE: [F:8190 L:123 R:131]
+07:38:45.347 BLIND DRIVE: [F:8190 L:78 R:232]
+07:38:45.526 
+07:38:45.526 CORNER DETECTED! [F:51 L:71 R:8190]
+07:38:47.534 Blind Turning Right...
+07:38:47.908 Turn complete! Check the physical angle!
+07:38:50.464 SOFT START: Ramping up power to prevent Brown-Out Resets...
+07:38:50.466 BLIND DRIVE: [F:8190 L:131 R:175]
+07:38:50.501 BLIND DRIVE: [F:8190 L:98 R:182]
+07:38:50.654 
+07:38:50.654 CORNER DETECTED! [F:81 L:71 R:8190]
+07:38:52.682 Blind Turning Right...
+07:38:53.062 Turn complete! Check the physical angle!
+07:38:55.232 
+07:38:55.232 CORNER DETECTED! [F:198 L:169 R:176]
+07:38:57.234 Blind U-Turn...
+07:38:58.005 Turn complete! Check the physical angle!
+07:39:00.198 
+07:39:00.198 CORNER DETECTED! [F:114 L:8190 R:107]
+07:39:02.432 Blind Turning Left...
+07:39:02.560 Turn complete! Check the physical angle!
+07:39:04.759 
+07:39:04.759 CORNER DETECTED! [F:178 L:147 R:202]
+07:39:06.837 Blind U-Turn...
+07:39:07.699 Turn complete! Check the physical angle!
+07:39:09.713 
+07:39:09.713 CORNER DETECTED! [F:43 L:8190 R:8190]
+07:39:11.710 Blind Turning Right...
+07:39:12.081 Turn complete! Check the physical angle!
+07:39:14.421 
+07:39:14.421 CORNER DETECTED! [F:43 L:8190 R:8190]
+07:39:16.174 STOP
+07:39:16.255 Blind Turning Right...
+07:39:16.649 Turn complete! Check the physical angle!
+07:39:18.706 
+07:39:18.706 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<

@@ -1,0 +1,22 @@
+started with default values
+violently steered left
+set bl = 240, p = 0.5
+violently steered left
+set bl = 255
+went straight
+detected wall, took right turn, but the turn became u turn
+set tr = 300
+went straight
+but fucked up after turning right, clashed with the side wall, did some havazard moves. then ultimately came back. tl was very much
+set tr = tl = 280. tu = 500
+violently steered left
+set br = 20
+violently steered left
+set br = 10
+violently steered right
+set br = 15
+violently steered left
+set bl =- 245
+violently steered left
+
+these are my testing observations. also the log message for pid is wrong, i guess. when it sees error negative, it is supposed to steer right. the steering right makes sense seeing the pwm values, but the log message says steering left

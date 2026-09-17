@@ -1,0 +1,162 @@
+02:30:21.741 
+02:30:21.741 === PHASE 3 (PID) CALIBRATION MENU ===
+02:30:21.744   BL:180  -> Base Left Speed (Straight)
+02:30:21.744   BR:10   -> Base Right Speed (Straight)
+02:30:21.744   XL:180  -> Turn Left Power (Pivot)
+02:30:21.744   XR:150  -> Turn Right Power (Pivot)
+02:30:21.744   FD:260  -> Front Brake Distance
+02:30:21.744   P:0.3   -> PID P-Gain
+02:30:21.744   D:0.2   -> PID D-Gain
+02:30:21.744   START   -> Begin driving
+02:30:21.744   STOP    -> Halt the car (on the fly)
+02:30:21.744 ======================================
+02:30:21.744 
+02:30:21.744 Current: BL=200 | BR=30 | XL=180 | XR=150 | TR=390 | TL=390 | TU=780 | FD=260 | P=0.20 | D=0.10 | I=0.00
+02:30:36.868 START
+02:30:37.372 
+02:30:37.372 >>> STARTING PID MAZE SOLVER! <<<
+02:30:37.554 PID -> Err:-8 Adj:-2 (Straight) [PWM_L:80 PWM_R:11]
+02:30:37.715 PID -> Err:-8 Adj:-1 (Straight) [PWM_L:100 PWM_R:14]
+02:30:37.889 PID -> Err:-16 Adj:-4 (Straight) [PWM_L:122 PWM_R:15]
+02:30:38.113 PID -> Err:-24 Adj:-5 (Straight) [PWM_L:143 PWM_R:17]
+02:30:38.245 PID -> Err:-37 Adj:-8 (Straight) [PWM_L:166 PWM_R:17]
+02:30:38.427 PID -> Err:-69 Adj:-17 (Steering Left) [PWM_L:195 PWM_R:11]
+02:30:38.584 PID -> Err:-94 Adj:-21 (Steering Left) [PWM_L:221 PWM_R:9]
+02:30:38.750 MAZE: Wall Ahead! STOPPING... [F:84 L:31 R:8190]
+02:30:40.784 MAZE: Right is open! Turn RIGHT. [L:31 R:8190]
+02:30:41.199 STOP
+02:30:41.453 ALIGN: Radar Sweep searching for absolute peak...
+02:30:41.759   [Sweep 1] Twitched L -> New F:160
+02:30:41.759   ALIGN: Bad first guess. Reversing sweep to R
+02:30:42.217   [Sweep 2] Twitched R -> New F:195
+02:30:42.465   [Sweep 3] Twitched R -> New F:8190
+02:30:42.705   [Sweep 4] Twitched R -> New F:8190
+02:30:42.707 ALIGN: Max range limit reached! Locked at [F:8190]
+02:30:44.776 
+02:30:44.776 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+02:31:02.256 BL:240
+02:31:02.344 
+02:31:02.344 Current: BL=240 | BR=30 | XL=180 | XR=150 | TR=390 | TL=390 | TU=780 | FD=260 | P=0.20 | D=0.10 | I=0.00
+02:31:13.405 P:0.5
+02:31:13.852 
+02:31:13.852 Current: BL=240 | BR=30 | XL=180 | XR=150 | TR=390 | TL=390 | TU=780 | FD=260 | P=0.50 | D=0.10 | I=0.00
+02:31:22.423 START
+02:31:22.563 
+02:31:22.563 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+02:31:22.669 PID -> Err:9 Adj:5 (Straight) [PWM_L:94 PWM_R:14]
+02:31:22.853 PID -> Err:9 Adj:4 (Straight) [PWM_L:118 PWM_R:17]
+02:31:23.045 PID -> Err:-19 Adj:-12 (Steering Left) [PWM_L:151 PWM_R:10]
+02:31:23.193 PID -> Err:-67 Adj:-38 (Steering Left) [PWM_L:178 PWM_R:0]
+02:31:23.371 MAZE: Wall Ahead! STOPPING... [F:149 L:36 R:8190]
+02:31:25.379 MAZE: Right is open! Turn RIGHT. [L:36 R:8190]
+02:31:26.096 ALIGN: Radar Sweep searching for absolute peak...
+02:31:26.343   [Sweep 1] Twitched L -> New F:8190
+02:31:26.343 ALIGN: Max range limit reached! Locked at [F:8190]
+02:31:28.720 PID -> Err:-52 Adj:-31 (Steering Left) [PWM_L:102 PWM_R:0]
+02:31:28.723 PID -> Err:-47 Adj:-23 (Steering Left) [PWM_L:127 PWM_R:3]
+02:31:28.737 STOP
+02:31:28.890 PID -> Err:-53 Adj:-27 (Steering Left) [PWM_L:153 PWM_R:1]
+02:31:28.933 
+02:31:28.933 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+02:32:37.580 BL:255
+02:32:37.923 
+02:32:37.923 Current: BL=255 | BR=30 | XL=180 | XR=150 | TR=390 | TL=390 | TU=780 | FD=260 | P=0.50 | D=0.10 | I=0.00
+02:32:41.413 START
+02:32:41.512 
+02:32:41.512 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+02:32:41.666 PID -> Err:-8 Adj:-4 (Straight) [PWM_L:102 PWM_R:10]
+02:32:41.816 PID -> Err:-7 Adj:-3 (Straight) [PWM_L:127 PWM_R:13]
+02:32:41.983 PID -> Err:-15 Adj:-8 (Straight) [PWM_L:153 PWM_R:13]
+02:32:42.167 PID -> Err:-32 Adj:-17 (Steering Left) [PWM_L:178 PWM_R:9]
+02:32:42.335 PID -> Err:-55 Adj:-29 (Steering Left) [PWM_L:204 PWM_R:0]
+02:32:42.510 PID -> Err:-64 Adj:-32 (Steering Left) [PWM_L:229 PWM_R:0]
+02:32:42.839 PID -> Err:-75 Adj:-38 (Steering Left) [PWM_L:255 PWM_R:0]
+02:32:42.857 PID -> Err:-74 Adj:-36 (Steering Left) [PWM_L:255 PWM_R:0]
+02:32:43.025 PID -> Err:-69 Adj:-34 (Steering Left) [PWM_L:255 PWM_R:0]
+02:32:43.194 PID -> Err:-72 Adj:-36 (Steering Left) [PWM_L:255 PWM_R:0]
+02:32:43.374 PID -> Err:-66 Adj:-32 (Steering Left) [PWM_L:255 PWM_R:0]
+02:32:43.554 MAZE: Wall Ahead! STOPPING... [F:202 L:102 R:8190]
+02:32:45.547 MAZE: Right is open! Turn RIGHT. [L:102 R:8190]
+02:32:46.226 ALIGN: Radar Sweep searching for absolute peak...
+02:32:46.949   [Sweep 1] Twitched L -> New F:8190
+02:32:46.950 ALIGN: Max range limit reached! Locked at [F:8190]
+02:32:48.684 PID -> Err:-5 Adj:-3 (Straight) [PWM_L:102 PWM_R:10]
+02:32:48.873 PID -> Err:0 Adj:0 (Straight) [PWM_L:127 PWM_R:15]
+02:32:49.043 PID -> Err:0 Adj:0 (Straight) [PWM_L:153 PWM_R:18]
+02:32:49.221 PID -> Err:-50 Adj:-30 (Steering Left) [PWM_L:178 PWM_R:0]
+02:32:49.403 MAZE: Wall Ahead! STOPPING... [F:104 L:29 R:8190]
+02:32:51.395 MAZE: Right is open! Turn RIGHT. [L:29 R:8190]
+02:32:52.228 ALIGN: Radar Sweep searching for absolute peak...
+02:32:52.413   [Sweep 1] Twitched L -> New F:8190
+02:32:52.415 ALIGN: Max range limit reached! Locked at [F:8190]
+02:32:54.352 STOP
+02:32:54.409 
+02:32:54.409 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+02:34:02.241 TR:300
+02:34:02.401 
+02:34:02.401 Current: BL=255 | BR=30 | XL=180 | XR=150 | TR=300 | TL=390 | TU=780 | FD=260 | P=0.50 | D=0.10 | I=0.00
+02:34:20.857 START
+02:34:21.109 
+02:34:21.109 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+02:34:21.254 PID -> Err:15 Adj:9 (Straight) [PWM_L:98 PWM_R:15]
+02:34:21.409 PID -> Err:16 Adj:8 (Straight) [PWM_L:123 PWM_R:19]
+02:34:21.577 PID -> Err:9 Adj:3 (Straight) [PWM_L:151 PWM_R:19]
+02:34:21.756 PID -> Err:4 Adj:1 (Straight) [PWM_L:177 PWM_R:21]
+02:34:21.943 PID -> Err:5 Adj:2 (Straight) [PWM_L:202 PWM_R:25]
+02:34:22.259 PID -> Err:16 Adj:9 (Straight) [PWM_L:221 PWM_R:35]
+02:34:22.262 PID -> Err:25 Adj:13 (Steering Right) [PWM_L:242 PWM_R:43]
+02:34:22.429 PID -> Err:28 Adj:14 (Steering Right) [PWM_L:241 PWM_R:44]
+02:34:22.616 PID -> Err:40 Adj:21 (Steering Right) [PWM_L:234 PWM_R:51]
+02:34:22.790 PID -> Err:38 Adj:18 (Steering Right) [PWM_L:237 PWM_R:48]
+02:34:22.950 MAZE: Wall Ahead! STOPPING... [F:248 L:203 R:8190]
+02:34:24.969 MAZE: Right is open! Turn RIGHT. [L:203 R:8190]
+02:34:25.563 ALIGN: Radar Sweep searching for absolute peak...
+02:34:25.855   [Sweep 1] Twitched L -> New F:151
+02:34:26.105   [Sweep 2] Twitched L -> New F:8190
+02:34:26.791   [Sweep 3] Twitched L -> New F:8190
+02:34:27.273 ALIGN: Max range limit reached! Locked at [F:8190]
+02:34:28.532 PID -> Err:36 Adj:21 (Steering Right) [PWM_L:93 PWM_R:20]
+02:34:28.698 PID -> Err:47 Adj:24 (Steering Right) [PWM_L:115 PWM_R:27]
+02:34:28.862 PID -> Err:20 Adj:7 (Straight) [PWM_L:148 PWM_R:22]
+02:34:29.039 PID -> Err:-25 Adj:-17 (Steering Left) [PWM_L:178 PWM_R:9]
+02:34:29.217 PID -> Err:-54 Adj:-29 (Steering Left) [PWM_L:204 PWM_R:0]
+02:34:29.394 MAZE: Wall Ahead! STOPPING... [F:102 L:29 R:8190]
+02:34:31.396 MAZE: Right is open! Turn RIGHT. [L:29 R:8190]
+02:34:31.976 ALIGN: Radar Sweep searching for absolute peak...
+02:34:32.264   [Sweep 1] Twitched L -> New F:8190
+02:34:32.543   [Sweep 2] Twitched L -> New F:8190
+02:34:32.548 ALIGN: Max range limit reached! Locked at [F:8190]
+02:34:34.723 PID -> Err:87 Adj:52 (Steering Right) [PWM_L:81 PWM_R:32]
+02:34:34.875 PID -> Err:-6 Adj:-12 (Steering Left) [PWM_L:127 PWM_R:9]
+02:34:35.042 PID -> Err:30 Adj:18 (Steering Right) [PWM_L:142 PWM_R:28]
+02:34:35.255 PID -> Err:80 Adj:45 (Steering Right) [PWM_L:147 PWM_R:52]
+02:34:35.383 MAZE: Wall Ahead! STOPPING... [F:92 L:170 R:49]
+02:34:37.393 MAZE: Dead End! 180 U-TURN. [L:170 R:49]
+02:34:38.534 ALIGN: Radar Sweep searching for absolute peak...
+02:34:38.762   [Sweep 1] Twitched L -> New F:8190
+02:34:38.762 ALIGN: Max range limit reached! Locked at [F:8190]
+02:34:40.940 PID -> Err:-4 Adj:-2 (Straight) [PWM_L:102 PWM_R:11]
+02:34:41.096 PID -> Err:2 Adj:1 (Straight) [PWM_L:127 PWM_R:15]
+02:34:41.274 PID -> Err:22 Adj:13 (Steering Right) [PWM_L:145 PWM_R:25]
+02:34:41.451 PID -> Err:37 Adj:20 (Steering Right) [PWM_L:164 PWM_R:35]
+02:34:41.626 PID -> Err:50 Adj:26 (Steering Right) [PWM_L:183 PWM_R:44]
+02:34:41.790 PID -> Err:63 Adj:32 (Steering Right) [PWM_L:200 PWM_R:55]
+02:34:41.964 PID -> Err:65 Adj:32 (Steering Right) [PWM_L:223 PWM_R:62]
+02:34:42.133 MAZE: Wall Ahead! STOPPING... [F:149 L:8190 R:64]
+02:34:44.559 MAZE: Left is open! Turn LEFT. [L:8190 R:64]
+02:34:44.849 ALIGN: Radar Sweep searching for absolute peak...
+02:34:45.124   [Sweep 1] Twitched L -> New F:8190
+02:34:45.125 ALIGN: Max range limit reached! Locked at [F:8190]
+02:34:47.289 PID -> Err:10 Adj:6 (Straight) [PWM_L:99 PWM_R:14]
+02:34:47.456 PID -> Err:-2 Adj:-2 (Straight) [PWM_L:127 PWM_R:14]
+02:34:47.648 PID -> Err:-64 Adj:-38 (Steering Left) [PWM_L:153 PWM_R:0]
+02:34:47.807 MAZE: Wall Ahead! STOPPING... [F:29 L:106 R:8190]
+02:34:49.831 MAZE: Right is open! Turn RIGHT. [L:106 R:8190]
+02:34:50.408 ALIGN: Radar Sweep searching for absolute peak...
+02:34:50.698   [Sweep 1] Twitched L -> New F:160
+02:34:50.974   [Sweep 2] Twitched L -> New F:8190
+02:34:51.202   [Sweep 3] Twitched L -> New F:8190
+02:34:51.202 ALIGN: Max range limit reached! Locked at [F:8190]
+02:34:51.668 STOP
+02:34:53.264 
+02:34:53.264 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<

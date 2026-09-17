@@ -1,0 +1,115 @@
+06:52:34.419 BL:135
+06:52:34.719 
+06:52:34.719 Current: BL=135 | BR=145 | TR=390 | TL=390 | TU=780
+06:52:39.426 START
+06:52:39.530 
+06:52:39.530 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:52:39.649 BLIND DRIVE: [F:8190 L:122 R:108]
+06:52:39.832 BLIND DRIVE: [F:8190 L:122 R:115]
+06:52:39.995 BLIND DRIVE: [F:8190 L:107 R:159]
+06:52:40.178 BLIND DRIVE: [F:8190 L:62 R:224]
+06:52:40.382 
+06:52:40.382 CORNER DETECTED! [L:30 R:8190]
+06:52:42.411 Blind Turning Right...
+06:52:42.740 Turn complete! Check the physical angle!
+06:52:45.123 
+06:52:45.123 CORNER DETECTED! [L:8190 R:8190]
+06:52:46.074 STOP
+06:52:46.910 Blind Turning Right...
+06:52:47.396 Turn complete! Check the physical angle!
+06:52:49.347 
+06:52:49.347 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+06:53:01.281 BL:145
+06:53:01.558 
+06:53:01.558 Current: BL=145 | BR=145 | TR=390 | TL=390 | TU=780
+06:53:06.188 START
+06:53:06.245 
+06:53:06.245 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:53:06.454 SOFT START: Ramping up power to prevent Brown-Out Resets...
+06:53:06.610 BLIND DRIVE: [F:8190 L:123 R:110]
+06:53:06.791 BLIND DRIVE: [F:8190 L:86 R:175]
+06:53:06.966 BLIND DRIVE: [F:8190 L:46 R:227]
+06:53:07.141 
+06:53:07.141 CORNER DETECTED! [L:33 R:8190]
+06:53:09.136 Blind Turning Right...
+06:53:09.521 Turn complete! Check the physical angle!
+06:53:10.430 STOP
+06:53:11.576 
+06:53:11.576 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+06:53:22.678 BR:130
+06:53:23.057 
+06:53:23.057 Current: BL=145 | BR=130 | TR=390 | TL=390 | TU=780
+06:53:28.786 START
+06:53:28.880 
+06:53:28.880 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:53:28.986 SOFT START: Ramping up power to prevent Brown-Out Resets...
+06:53:29.239 BLIND DRIVE: [F:8190 L:123 R:112]
+06:53:29.397 BLIND DRIVE: [F:8190 L:82 R:208]
+06:53:29.571 
+06:53:29.571 CORNER DETECTED! [L:34 R:8190]
+06:53:31.563 Blind Turning Right...
+06:53:31.974 Turn complete! Check the physical angle!
+06:53:34.137 STOP
+06:53:34.562 
+06:53:34.562 CORNER DETECTED! [L:32 R:8190]
+06:53:36.207 Blind Turning Right...
+06:53:36.524 Turn complete! Check the physical angle!
+06:53:38.597 
+06:53:38.597 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+06:53:47.558 BR:120
+06:53:48.075 
+06:53:48.075 Current: BL=145 | BR=120 | TR=390 | TL=390 | TU=780
+06:53:52.434 START
+06:53:52.607 
+06:53:52.607 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:53:52.704 SOFT START: Ramping up power to prevent Brown-Out Resets...
+06:53:52.936 BLIND DRIVE: [F:8190 L:122 R:117]
+06:53:53.099 BLIND DRIVE: [F:8190 L:77 R:219]
+06:53:53.288 
+06:53:53.288 CORNER DETECTED! [L:31 R:8190]
+06:53:55.305 Blind Turning Right...
+06:53:55.684 Turn complete! Check the physical angle!
+06:53:57.482 STOP
+06:53:57.725 
+06:53:57.725 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+06:54:06.864 BR:0
+06:54:07.211 
+06:54:07.211 Current: BL=145 | BR=0 | TR=390 | TL=390 | TU=780
+06:54:11.015 START
+06:54:11.122 
+06:54:11.122 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:54:11.236 SOFT START: Ramping up power to prevent Brown-Out Resets...
+06:54:11.496 BLIND DRIVE: [F:8190 L:126 R:111]
+06:54:11.653 BLIND DRIVE: [F:8190 L:85 R:204]
+06:54:11.826 
+06:54:11.826 CORNER DETECTED! [L:30 R:8190]
+06:54:13.843 Blind Turning Right...
+06:54:14.213 Turn complete! Check the physical angle!
+06:54:16.805 
+06:54:16.805 CORNER DETECTED! [L:31 R:8190]
+06:54:17.897 STOP
+06:54:18.476 Blind Turning Right...
+06:54:18.777 Turn complete! Check the physical angle!
+06:54:20.837 
+06:54:20.837 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
+06:54:25.180 BL:0
+06:54:25.535 
+06:54:25.535 Current: BL=0 | BR=0 | TR=390 | TL=390 | TU=780
+06:54:29.931 START
+06:54:30.031 
+06:54:30.031 >>> RESUMING DRIVE WITH NEW CALIBRATION! <<<
+06:54:30.146 SOFT START: Ramping up power to prevent Brown-Out Resets...
+06:54:30.407 BLIND DRIVE: [F:8190 L:135 R:103]
+06:54:30.559 BLIND DRIVE: [F:8190 L:95 R:209]
+06:54:30.760 
+06:54:30.760 CORNER DETECTED! [L:30 R:8190]
+06:54:32.744 Blind Turning Right...
+06:54:33.136 Turn complete! Check the physical angle!
+06:54:35.523 
+06:54:35.523 CORNER DETECTED! [L:198 R:8190]
+06:54:36.646 STOP
+06:54:37.297 Blind Turning Right...
+06:54:37.695 Turn complete! Check the physical angle!
+06:54:39.580 STOP
+06:54:39.745 
+06:54:39.745 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<
