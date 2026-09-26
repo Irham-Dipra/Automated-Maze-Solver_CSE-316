@@ -1,0 +1,35 @@
+00:01:40.090 Connecting to Maze_Robot_Dipra ...
+00:01:42.192 Connected
+00:01:43.482 
+00:01:43.482 Bluetooth Connected! Booting Brain...
+00:01:44.326 ======================================
+00:01:44.326 PLEASE KEEP THE ROBOT COMPLETELY STILL
+00:01:44.326 CALIBRATING GYROSCOPE...
+00:01:44.326 ======================================
+00:01:46.354 
+00:01:46.354 Gyroscope Calibrated!
+00:01:46.357 
+00:01:46.357 >>> PLACE CAR ON GROUND. STARTING MAZE SOLVER IN 3 SECONDS... <<<
+00:01:49.723 
+00:01:49.723 >>> GO! <<<
+00:01:49.765 GYRO PID -> Yaw:-0.00 Adj:0 (Straight) [PWM_L:72 PWM_R:72]
+00:01:49.766 GYRO PID -> Yaw:-0.09 Adj:0 (Straight) [PWM_L:90 PWM_R:90]
+00:01:49.766 GYRO PID -> Yaw:-0.49 Adj:2 (Straight) [PWM_L:106 PWM_R:109]
+00:01:49.792 GYRO PID -> Yaw:-1.09 Adj:5 (Straight) [PWM_L:122 PWM_R:129]
+00:01:54.811 Connection lost
+00:02:03.199 Connecting to Maze_Robot_Dipra ...
+00:02:04.913 Connected
+00:02:06.368 
+00:02:06.368 Bluetooth Connected! Booting Brain...
+00:02:07.222 ======================================
+00:02:07.223 PLEASE KEEP THE ROBOT COMPLETELY STILL
+00:02:07.223 CALIBRATING GYROSCOPE...
+00:02:07.223 ======================================
+00:02:09.248 
+00:02:09.248 Gyroscope Calibrated!
+00:02:09.251 
+00:02:09.251 >>> PLACE CAR ON GROUND. STARTING MAZE SOLVER IN 3 SECONDS... <<<
+00:02:12.300 
+00:02:12.300 >>> GO! <<<
+00:02:12.305 GYRO PID -> Yaw:0.00 Adj:0 (Straight) [PWM_L:72 PWM_R:72]
+00:02:17.343 Connection lost

@@ -1,2 +1,6 @@
 Phase1_ATmega_Listen.cpp
 Phase1_ESP32_Ping/Phase1_ESP32_Ping.ino
+Phase3_ATmega_Slave.elf
+Phase3_ATmega_Slave.hex
+Simple_Hardware_Test
+.vscode/

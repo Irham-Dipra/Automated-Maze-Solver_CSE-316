@@ -1,0 +1,141 @@
+13:37:53.757 Connection lost
+13:37:56.753 Connecting to Maze_Robot_Dipra ...
+13:37:57.273 Connected
+13:37:58.745 
+13:37:58.745 Bluetooth Connected! Booting Brain...
+13:37:58.750 ======================================
+13:37:58.750 PLEASE KEEP THE ROBOT COMPLETELY STILL
+13:37:58.750 CALIBRATING GYROSCOPE...
+13:37:58.750 ======================================
+13:38:00.255 
+13:38:00.255 Gyroscope Calibrated!
+13:38:00.764 
+13:38:00.764 === PHASE 4 (GYRO PID) CALIBRATION MENU ===
+13:38:00.765   BL:180  -> Base Left Speed (Straight)
+13:38:00.765   BR:10   -> Base Right Speed (Straight)
+13:38:00.765   XL:180  -> Turn Left Power (Pivot)
+13:38:00.765   XR:150  -> Turn Right Power (Pivot)
+13:38:00.765   FD:260  -> Front Brake Distance
+13:38:00.765   P:4.0   -> GYRO PID P-Gain
+13:38:00.765   D:1.5   -> GYRO PID D-Gain
+13:38:00.765   START   -> Begin driving
+13:38:00.765   STOP    -> Halt the car (on the fly)
+13:38:00.765 ======================================
+13:38:00.766 
+13:38:00.766 Current: BL=200 | BR=30 | XL=180 | XR=150 | FD=260 | P=4.00 | D=1.50 | I=0.00
+13:38:23.646 BL:150
+13:38:23.810 
+13:38:23.810 Current: BL=150 | BR=30 | XL=180 | XR=150 | FD=260 | P=4.00 | D=1.50 | I=0.00
+13:38:31.862 BR:150
+13:38:31.961 
+13:38:31.961 Current: BL=150 | BR=150 | XL=180 | XR=150 | FD=260 | P=4.00 | D=1.50 | I=0.00
+13:38:40.504 START
+13:38:40.630 
+13:38:40.630 >>> STARTING GYRO MAZE SOLVER! <<<
+13:38:40.717 GYRO PID -> Yaw:-0.00 Adj:0 (Straight) [PWM_L:60 PWM_R:60]
+13:38:40.770 GYRO PID -> Yaw:0.00 Adj:0 (Straight) [PWM_L:75 PWM_R:75]
+13:38:40.810 GYRO PID -> Yaw:-0.06 Adj:0 (Straight) [PWM_L:90 PWM_R:90]
+13:38:40.876 GYRO PID -> Yaw:-1.84 Adj:10 (Steering Left) [PWM_L:98 PWM_R:112]
+13:38:40.948 GYRO PID -> Yaw:-1.70 Adj:6 (Steering Left) [PWM_L:115 PWM_R:124]
+13:38:40.999 GYRO PID -> Yaw:-1.71 Adj:6 (Steering Left) [PWM_L:129 PWM_R:140]
+13:38:41.032 GYRO PID -> Yaw:-1.70 Adj:6 (Steering Left) [PWM_L:144 PWM_R:156]
+13:38:41.083 GYRO PID -> Yaw:-1.72 Adj:6 (Steering Left) [PWM_L:144 PWM_R:156]
+13:38:41.147 GYRO PID -> Yaw:-1.74 Adj:6 (Steering Left) [PWM_L:144 PWM_R:156]
+13:38:41.201 GYRO PID -> Yaw:-3.35 Adj:15 (Steering Left) [PWM_L:135 PWM_R:165]
+13:38:41.236 GYRO PID -> Yaw:-6.16 Adj:28 (Steering Left) [PWM_L:122 PWM_R:178]
+13:38:41.309 GYRO PID -> Yaw:-7.21 Adj:30 (Steering Left) [PWM_L:120 PWM_R:180]
+13:38:41.349 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.392 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.448 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.483 GYRO PID -> Yaw:-7.33 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.539 GYRO PID -> Yaw:-7.33 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.605 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.654 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.705 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.745 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.796 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.848 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.935 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:41.946 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.007 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.068 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.097 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.156 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.240 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.281 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.332 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.361 GYRO PID -> Yaw:-7.31 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.450 GYRO PID -> Yaw:-7.32 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.455 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.528 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.586 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.628 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.697 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.727 GYRO PID -> Yaw:-7.31 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.782 GYRO PID -> Yaw:-7.32 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.858 GYRO PID -> Yaw:-7.33 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.876 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:42.960 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.003 GYRO PID -> Yaw:-7.34 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.061 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.117 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.146 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.213 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.273 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.328 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.361 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.408 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.436 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.509 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.534 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.598 GYRO PID -> Yaw:-7.35 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.654 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.693 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.764 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.811 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.871 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.923 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:43.977 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.037 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.065 GYRO PID -> Yaw:-7.37 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.138 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.166 GYRO PID -> Yaw:-7.36 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.220 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.281 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.377 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.424 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.517 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.517 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.525 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.557 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.592 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.636 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.686 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.734 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.768 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.810 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.869 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.906 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.961 GYRO PID -> Yaw:-7.43 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:44.998 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.051 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.078 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.134 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.172 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.240 GYRO PID -> Yaw:-7.41 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.273 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.319 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.360 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.417 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.470 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.522 GYRO PID -> Yaw:-7.42 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.585 GYRO PID -> Yaw:-7.40 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.735 STOP
+13:38:45.855 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.858 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.863 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.867 GYRO PID -> Yaw:-7.38 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.876 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.878 GYRO PID -> Yaw:-7.39 Adj:29 (Steering Left) [PWM_L:121 PWM_R:179]
+13:38:45.881 
+13:38:45.881 >>> SYSTEM HALTED! You may now recalibrate. Send 'START' to resume. <<<

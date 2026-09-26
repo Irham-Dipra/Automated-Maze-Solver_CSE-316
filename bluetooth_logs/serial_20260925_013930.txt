@@ -1,0 +1,9 @@
+00:11:01.697 Connecting to Maze_Robot_Dipra ...
+00:11:02.521 Connected
+00:11:03.650 
+00:11:03.650 Bluetooth Connected! Booting Brain...
+00:11:40.833 Connection lost
+00:32:48.683 Connecting to Maze_Robot_Dipra ...
+00:32:51.319 Connected
+00:32:59.159 START
+00:33:12.030 Connection lost

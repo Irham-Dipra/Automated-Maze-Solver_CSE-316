@@ -3,9 +3,8 @@ F_CPU=1000000UL
 CC=avr-gcc
 OBJCOPY=avr-objcopy
 CFLAGS=-Wall -Os -DF_CPU=${F_CPU} -mmcu=${MCU} -x c
-TARGET=Phase3_ATmega_Slave
-SRCS=Phase3_ATmega_Slave.cpp
-
+TARGET=Simple_Hardware_Test/Simple_ATmega_Test
+SRCS=Simple_Hardware_Test/Simple_ATmega_Test.cpp
 all: ${TARGET}.hex
 
 ${TARGET}.hex: ${TARGET}.elf
