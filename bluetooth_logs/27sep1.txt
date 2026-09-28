@@ -1,0 +1,45 @@
+14:38:55.339 Connecting to MazeSolver_ESP32 ...
+14:39:01.556 Connected
+14:39:22.522   [FAIL] Sensor FRONT NOT FOUND at 0x30! Check wiring.
+14:39:22.522   [OK] Sensor LEFT ready at 0x31
+14:39:22.754   [OK] Sensor RIGHT ready at 0x32
+14:39:23.747 ======================================
+14:39:23.749 Place the car on a flat surface for gyroscope calibration.
+14:39:23.752 Do NOT touch the car during calibration!
+14:39:23.753 Calibration is starting after 3 seconds...
+14:39:23.753 ======================================
+14:39:26.781 ======================================
+14:39:26.781 3 second is over.
+14:39:26.781 ======================================
+14:39:26.782 ======================================
+14:39:26.790 CALIBRATING GYROSCOPE...
+14:39:26.790 ======================================
+14:39:28.971 
+14:39:28.971 Gyroscope Calibrated!
+14:39:28.972 
+14:39:28.972 >>> POST-CALIBRATION: STARTING MAZE SOLVER IN 1 SECOND... <<<
+14:39:29.806 
+14:39:29.806 >>> GO! <<<
+14:40:12.369 Connection lost
+14:40:14.832 Connecting to MazeSolver_ESP32 ...
+14:40:16.124 Connected
+14:40:54.414   [FAIL] Sensor FRONT NOT FOUND at 0x30! Check wiring.
+14:40:54.422   [OK] Sensor LEFT ready at 0x31
+14:40:54.423   [OK] Sensor RIGHT ready at 0x32
+14:40:55.207 ======================================
+14:40:55.207 Place the car on a flat surface for gyroscope calibration.
+14:40:55.207 Do NOT touch the car during calibration!
+14:40:55.209 Calibration is starting after 3 seconds...
+14:40:55.209 ======================================
+14:40:58.214 ======================================
+14:40:58.214 3 second is over.
+14:40:58.214 ======================================
+14:40:58.214 ======================================
+14:40:58.214 CALIBRATING GYROSCOPE...
+14:40:58.214 ======================================
+14:41:00.203 
+14:41:00.203 Gyroscope Calibrated!
+14:41:00.206 
+14:41:00.206 >>> POST-CALIBRATION: STARTING MAZE SOLVER IN 1 SECOND... <<<
+14:41:01.207 
+14:41:01.207 >>> GO! <<<

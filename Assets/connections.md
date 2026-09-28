@@ -1,17 +1,21 @@
 # Connections
 
-## Powers
+### Logic Power (Breadboard & MCUs)
+*   Battery Pack 1 (Logic) -> Buck Converter IN
+*   Buck Converter (5V) OUT+ -> Breadboard Power 1 & 2 (5V Rail)
+*   Buck Converter (5V) OUT- -> Breadboard Gnd 1 & 2 (Common Gnd)
 
-*   Battery holder (7.4V) positive - Rocker Switch (Terminal 1)
-*   Rocker Switch (Terminal 2) - Motor drive 12V
-*   Battery holder (7.4V) negative - Breadboard ground 2
+### Motor Power (High Current)
+*   Battery Pack 2 (7.4V) positive -> Rocker Switch (Terminal 1)
+*   Rocker Switch (Terminal 2) -> Motor drive 12V
+*   Battery Pack 2 (7.4V) negative -> Motor drive GND
+*   **CRITICAL:** Motor drive GND -> Breadboard Gnd 2 (Common ground required for PWM logic!)
+*   *Note: Motor Driver 5V output is NO LONGER connected to the breadboard.*
 
-
-*   Motor driver GND - Breadboard ground 2
-*   Motor Driver 5V - Breadboard power 1
-
-*   Power 1 - Power 2
-*   Gnd 1 - Gnd 2
+## Capacitors (Noise Filtering)
+*   1000µF Capacitor -> Across vin and GND of ESP32
+*   100nF Capacitor -> Across ESP32 VIN and GND
+*   100nF Capacitor -> Across ATmega32 VCC and GND
 
 ## Motor Driver Connections
 

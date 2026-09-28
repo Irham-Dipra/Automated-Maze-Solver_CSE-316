@@ -1,0 +1,89 @@
+Automated Maze Solver: Progress Report
+
+# 1. Original Project Proposal Plan
+This section outlines the initial goals, timeline, and testing criteria presented during the project proposal phase.
+
+Expected Outcome:
+A fully autonomous robot capable of navigating a 16x16 maze grid, mapping dead ends, and calculating the fastest route.
+
+Implementation Plan & Updates:
+- Weeks 1-2: Complete chassis assembly, establish PC simulation of the Flood Fill algorithm, and finalize the ATmega32 PID controller for straight-line driving.
+- Weeks 3-5: Integrate the ToF sensors with the ESP32, merge the mapping logic with the movement logic, and finalize edge-case tuning for wall-drift correction.
+
+System Testing Methodology (4 phases):
+- Phase 1 (Locomotion & PID): Test perfectly straight 1m driving and exact 90-degree turns using encoder counts.
+- Phase 2 (Sensor & I2C Calibration): Verify XSHUT addressing to prevent I2C conflicts and calibrate ToF distances.
+- Phase 3 (Algorithm Simulation): Test Flood Fill algorithm on a PC simulation before flashing the ESP32.
+- Phase 4 (Full Integration): Test hardware/software synchronization in scaled-down physical mazes.
+
+Measurable Criteria for Success:
+- PID Synchronization Error: Evaluates steady-state error between left and right encoder counts to ensure straight-line stability.
+- Algorithmic Path Efficiency: Evaluates optimal path calculation after mapping.
+
+Separation of Features:
+- Essential Features (MVP): Maintain accurate digital coordinates/heading, autonomously map the maze and find the center, and execute stable PID motor control.
+- Optional Features (Stretch Goals): Return to start and execute a high-speed run through the optimal path, and broadcast live Wi-Fi telemetry to a dashboard.
+
+
+# 2. Current Hardware Structure and Connections
+The robot's physical architecture is built upon a 2WD robotic chassis kit. 
+
+Chassis Layout:
+- Top Deck: A breadboard is mounted on the top of the chassis. This breadboard houses the ATmega32 development setup, the ESP32 module, the logic level shifter, and the 5V buck converter. The three VL53L0X Time-of-Flight sensors are mounted around the perimeter of the top deck to detect forward, left, and right obstacles.
+- Bottom Deck: The dual battery packs (one for the motor driver, one for the logic circuit) and the L298N motor driver are mounted securely underneath to maintain a low center of gravity.
+
+Hardware Connections Map:
+The wiring architecture is separated into logic and high-current motor pathways to prevent electrical interference.
+
+Logic Power (Breadboard & MCUs):
+- Battery Pack 1 (Logic) -> Buck Converter IN
+- Buck Converter (5V) OUT+ -> Breadboard Power 1 & 2 (5V Rail)
+- Buck Converter (5V) OUT- -> Breadboard Gnd 1 & 2 (Common Gnd)
+
+Motor Power (High Current):
+- Battery Pack 2 (7.4V) positive -> Rocker Switch (Terminal 1)
+- Rocker Switch (Terminal 2) -> Motor driver 12V
+- Battery Pack 2 (7.4V) negative -> Motor driver GND
+- CRITICAL: Motor drive GND -> Breadboard Gnd 2 (Common ground required for PWM logic!)
+- Note: Motor Driver 5V output is NO LONGER connected to the breadboard.
+
+Capacitors (Noise Filtering):
+- 1000uF Capacitor -> Across Motor driver 12V and GND
+- 100nF Capacitor -> Across ESP32 VIN and GND
+- 100nF Capacitor -> Across ATmega32 VCC and GND
+
+Motor Driver Connections:
+- Out1 -> Left Motor top; Out2 -> Left Motor bottom
+- Out3 -> Right Motor top; Out4 -> Right Motor bottom
+- IN1 -> ATmega PB0 (1); IN2 -> ATmega PB1 (2)
+- IN3 -> ATmega PB2 (3); IN4 -> ATmega PB4 (5)
+- ENA -> ATmega PD5 (19); ENB -> ATmega PD4 (18)
+
+Logic Level Shifter (UART Bridge & 3.3V Sensor Power):
+- HV -> Power 1 (ATmega 5V)
+- LV -> ESP32 3V3 Pin (Creates the 3.3V Breadboard rail that powers all sensors)
+- GND (both) -> Breadboard Gnd 1 / Gnd 2
+- LV1 -> ESP32 TX2 (Pin 24); HV1 -> ATmega RXD (PD0 / Pin 14)
+
+I2C Sensors (3x VL53L0X ToF):
+- Power: VIN/VCC -> 3.3V Breadboard rail; GND -> Common Ground.
+- I2C Bus: SDA -> ESP32 Pin 21; SCL -> ESP32 Pin 22.
+- XSHUT Pins: Front -> ESP32 Pin 19; Left -> ESP32 Pin 18; Right -> ESP32 Pin 4.
+
+
+# 3. Progress Achieved
+Considerable software and architectural milestones have been reached, though it must be noted that **the car is currently not physically functional** due to catastrophic hardware and electrical issues (detailed in the next section). 
+
+- Dual-MCU Architecture: Programmed a master-slave configuration where the ESP32 acts as the high-level brain handling sensors, and the ATmega32 acts as the motor controller receiving commands via UART.
+- Sensor Integration: Successfully interfaced three VL53L0X ToF sensors over a shared I2C bus using XSHUT pins for dynamic address assignment.
+- Telemetry & Debugging: Built a comprehensive Bluetooth telemetry system that mirrors internal ESP32 logs to a mobile device.
+- Fault Tolerance Code: Implemented a software fallback mechanism and non-blocking sensor boot routines to prevent the ESP32 from freezing when I2C hardware fails.
+
+
+# 4. Major Recurring Challenges & Latest Troubleshooting
+Despite a sound software architecture, the project is currently inoperable due to severe physical and electrical bottlenecks:
+
+- USB Dependency and Battery Brownouts: The car operates smoothly and prints logs when powered via a laptop USB cable. However, when run purely on battery power, the car hangs. Boot logs reveal a massive delay (often over a minute) before the ESP32 can connect to Bluetooth, indicating that the sudden current spike of the 2.4GHz radio is causing voltage drops (brownouts) and continuous boot-loops when on battery power.
+- I2C Bus Noise and Sensor Freezing: Even when the MCU successfully boots, the ToF sensors frequently fail to initialize. The I2C bus is highly susceptible to electrical noise from the motors, causing the sensor library's initialization function to block/timeout.
+- Motor Stalling and Buzzing: Currently, the car fails to execute turns (Left or Right). When commanded to turn, the motors emit a high-pitched buzzing sound but refuse to spin. This indicates that the motors lack the necessary torque to pivot the chassis, which implies either a severe voltage drop from the 7.4V battery pack, or damage to the L298N driver transistors.
+- Complete Motor Failure (Current State): In the most recent tests, the motors completely fail to turn even when the logic circuit is cleanly powered by the USB cable. This suggests a total failure of the motor power delivery system (e.g., depleted motor battery, fried L298N motor driver, or a disconnected common ground).

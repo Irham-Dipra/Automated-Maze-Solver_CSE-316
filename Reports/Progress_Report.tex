@@ -4,7 +4,7 @@
 \geometry{a4paper, margin=1in}
 \usepackage{hyperref}
 
-\title{Automated Maze Solver: Progress Report \& Adjusted Strategy}
+\title{Automated Maze Solver: Progress Report}
 \author{Dipra}
 \date{\today}
 
@@ -12,44 +12,116 @@
 
 \maketitle
 
-\section{Introduction}
-With only two days remaining until the project submission deadline, this report outlines the significant progress made on the Automated Maze Solver, details the recurring hardware and software challenges encountered, and presents a revised, focused strategy to ensure a successful and complete demonstration.
+\section{Original Project Proposal Plan}
+This section outlines the initial goals, timeline, and testing criteria presented during the project proposal phase.
+
+\subsection{Expected Outcome}
+A fully autonomous robot capable of navigating a 16x16 maze grid, mapping dead ends, and calculating the fastest route.
+
+\subsection{Implementation Plan \& Updates}
+\begin{itemize}
+    \item \textbf{Weeks 1-2:} Complete chassis assembly, establish PC simulation of the Flood Fill algorithm, and finalize the ATmega32 PID controller for straight-line driving.
+    \item \textbf{Weeks 3-5:} Integrate the ToF sensors with the ESP32, merge the mapping logic with the movement logic, and finalize edge-case tuning for wall-drift correction.
+\end{itemize}
+
+\subsection{System Testing Methodology}
+The system was designed to be tested in 4 phases:
+\begin{itemize}
+    \item \textbf{Phase 1 (Locomotion \& PID):} Test perfectly straight 1m driving and exact $90^\circ$ turns using encoder counts.
+    \item \textbf{Phase 2 (Sensor \& I2C Calibration):} Verify XSHUT addressing to prevent I2C conflicts and calibrate ToF distances.
+    \item \textbf{Phase 3 (Algorithm Simulation):} Test Flood Fill algorithm on a PC simulation before flashing the ESP32.
+    \item \textbf{Phase 4 (Full Integration):} Test hardware/software synchronization in scaled-down physical mazes.
+\end{itemize}
+
+\subsection{Measurable Criteria for Success}
+\begin{itemize}
+    \item \textbf{PID Synchronization Error:} Evaluates steady-state error between left and right encoder counts to ensure straight-line stability.
+    \item \textbf{Algorithmic Path Efficiency:} Evaluates optimal path calculation after mapping.
+\end{itemize}
+
+\subsection{Separation of Features}
+\begin{itemize}
+    \item \textbf{Essential Features (MVP):} Maintain accurate digital coordinates/heading, autonomously map the maze and find the center, and execute stable PID motor control.
+    \item \textbf{Optional Features (Stretch Goals):} Return to start and execute a high-speed run through the optimal path, and broadcast live Wi-Fi telemetry to a dashboard.
+\end{itemize}
+
+\section{Current Hardware Structure and Connections}
+The robot's physical architecture is built upon a 2WD robotic chassis kit. 
+
+\subsection{Chassis Layout}
+\begin{itemize}
+    \item \textbf{Top Deck:} A breadboard is mounted on the top of the chassis. This breadboard houses the ATmega32 development setup, the ESP32 module, the logic level shifter, and the 5V buck converter. The three VL53L0X Time-of-Flight sensors are mounted around the perimeter of the top deck to detect forward, left, and right obstacles.
+    \item \textbf{Bottom Deck:} The dual battery packs (one for the motor driver, one for the logic circuit) and the L298N motor driver are mounted securely underneath to maintain a low center of gravity.
+\end{itemize}
+
+\subsection{Hardware Connections Map}
+The wiring architecture is separated into logic and high-current motor pathways to prevent electrical interference.
+
+\textbf{Logic Power (Breadboard \& MCUs)}
+\begin{itemize}
+    \item Battery Pack 1 (Logic) $\rightarrow$ Buck Converter IN
+    \item Buck Converter (5V) OUT+ $\rightarrow$ Breadboard Power 1 \& 2 (5V Rail)
+    \item Buck Converter (5V) OUT- $\rightarrow$ Breadboard Gnd 1 \& 2 (Common Gnd)
+\end{itemize}
+
+\textbf{Motor Power (High Current)}
+\begin{itemize}
+    \item Battery Pack 2 (7.4V) positive $\rightarrow$ Rocker Switch (Terminal 1)
+    \item Rocker Switch (Terminal 2) $\rightarrow$ Motor driver 12V
+    \item Battery Pack 2 (7.4V) negative $\rightarrow$ Motor driver GND
+    \item \textbf{CRITICAL:} Motor drive GND $\rightarrow$ Breadboard Gnd 2 (Common ground required for PWM logic!)
+    \item \textit{Note: Motor Driver 5V output is NO LONGER connected to the breadboard.}
+\end{itemize}
+
+\textbf{Capacitors (Noise Filtering)}
+\begin{itemize}
+    \item 1000$\mu$F Capacitor $\rightarrow$ Across Motor driver 12V and GND
+    \item 100nF Capacitor $\rightarrow$ Across ESP32 VIN and GND
+    \item 100nF Capacitor $\rightarrow$ Across ATmega32 VCC and GND
+\end{itemize}
+
+\textbf{Motor Driver Connections}
+\begin{itemize}
+    \item Out1 $\rightarrow$ Left Motor top; Out2 $\rightarrow$ Left Motor bottom
+    \item Out3 $\rightarrow$ Right Motor top; Out4 $\rightarrow$ Right Motor bottom
+    \item IN1 $\rightarrow$ ATmega PB0 (1); IN2 $\rightarrow$ ATmega PB1 (2)
+    \item IN3 $\rightarrow$ ATmega PB2 (3); IN4 $\rightarrow$ ATmega PB4 (5)
+    \item ENA $\rightarrow$ ATmega PD5 (19); ENB $\rightarrow$ ATmega PD4 (18)
+\end{itemize}
+
+\textbf{Logic Level Shifter (UART Bridge \& 3.3V Sensor Power)}
+\begin{itemize}
+    \item HV $\rightarrow$ Power 1 (ATmega 5V)
+    \item LV $\rightarrow$ ESP32 3V3 Pin (Creates the 3.3V Breadboard rail that powers all sensors)
+    \item GND (both) $\rightarrow$ Breadboard Gnd 1 / Gnd 2
+    \item LV1 $\rightarrow$ ESP32 TX2 (Pin 24); HV1 $\rightarrow$ ATmega RXD (PD0 / Pin 14)
+\end{itemize}
+
+\textbf{I2C Sensors (3x VL53L0X ToF)}
+\begin{itemize}
+    \item \textbf{Power:} VIN/VCC $\rightarrow$ 3.3V Breadboard rail; GND $\rightarrow$ Common Ground.
+    \item \textbf{I2C Bus:} SDA $\rightarrow$ ESP32 Pin 21; SCL $\rightarrow$ ESP32 Pin 22.
+    \item \textbf{XSHUT Pins:} Front $\rightarrow$ ESP32 Pin 19; Left $\rightarrow$ ESP32 Pin 18; Right $\rightarrow$ ESP32 Pin 4.
+\end{itemize}
 
 \section{Progress Achieved}
-Considerable milestones have been reached in developing the dual-microcontroller architecture of the maze solver:
+Considerable software and architectural milestones have been reached, though it must be noted that \textbf{the car is currently not physically functional} due to catastrophic hardware and electrical issues (detailed in the next section). 
+
 \begin{itemize}
-    \item \textbf{Dual-MCU Architecture:} Successfully established a robust master-slave configuration. The ESP32 acts as the high-level brain handling sensors and navigation algorithms, while the ATmega32 acts as the motor controller, receiving commands via UART.
-    \item \textbf{Sensor Integration:} Successfully interfaced three VL53L0X Time-of-Flight (ToF) sensors over a shared I2C bus using XSHUT pins for dynamic address assignment.
-    \item \textbf{Gyroscope Tracking:} Integrated the MPU6050 for heading tracking. Implemented a Proportional-Derivative (PD) control loop allowing the car to maintain a straight trajectory and dynamically correct for motor imbalances.
-    \item \textbf{Telemetry \& Debugging:} Built a comprehensive Bluetooth telemetry system that mirrors internal ESP32 logs to a mobile device, allowing for real-time debugging without physical cable tethers.
-    \item \textbf{Fault Tolerance:} Implemented a software fallback mechanism (Timed Turns) and I2C bus recovery sequence (9-clock cycle SCL pulse) to recover from mid-operation hardware freezes.
+    \item \textbf{Dual-MCU Architecture:} Programmed a master-slave configuration where the ESP32 acts as the high-level brain handling sensors, and the ATmega32 acts as the motor controller receiving commands via UART.
+    \item \textbf{Sensor Integration:} Successfully interfaced three VL53L0X ToF sensors over a shared I2C bus using XSHUT pins for dynamic address assignment.
+    \item \textbf{Telemetry \& Debugging:} Built a comprehensive Bluetooth telemetry system that mirrors internal ESP32 logs to a mobile device.
+    \item \textbf{Fault Tolerance Code:} Implemented a software fallback mechanism and non-blocking sensor boot routines to prevent the ESP32 from freezing when I2C hardware fails.
 \end{itemize}
 
-\section{Major Recurring Challenges}
-The project has faced persistent challenges, predominantly stemming from hardware and electrical limitations:
+\section{Major Recurring Challenges \& Latest Troubleshooting}
+Despite a sound software architecture, the project is currently inoperable due to severe physical and electrical bottlenecks:
+
 \begin{itemize}
-    \item \textbf{Electrical Noise and I2C Bus Instability:} The most significant hurdle has been electrical noise generated by the brushed DC motors. During sudden power draws (especially during pivoting turns), voltage spikes/drops cause the sensitive I2C bus to crash, leading to "Error 263" and freezing the Gyroscope (MPU6050) and ToF sensors. 
-    \item \textbf{Motor Asymmetry:} The right and left motors exhibit different physical torque characteristics, causing the car to naturally drift. While the PD controller attempts to compensate, extreme corrections have sometimes led to runaway oscillations.
-    \item \textbf{Sensor Lockups During Turns:} Because the I2C bus freezes during aggressive turns, the closed-loop gyro turning algorithm loses its feedback. We successfully implemented a software fallback (open-loop timed turns), but physical calibration remains sensitive to battery voltage.
+    \item \textbf{USB Dependency and Battery Brownouts:} The car operates smoothly and prints logs when powered via a laptop USB cable. However, when run purely on battery power, the car hangs. Boot logs reveal a massive delay (often over a minute) before the ESP32 can connect to Bluetooth, indicating that the sudden current spike of the 2.4GHz radio is causing voltage drops (brownouts) and continuous boot-loops when on battery power.
+    \item \textbf{I2C Bus Noise and Sensor Freezing:} Even when the MCU successfully boots, the ToF sensors frequently fail to initialize. The I2C bus is highly susceptible to electrical noise from the motors, causing the sensor library's initialization function to block/timeout.
+    \item \textbf{Motor Stalling and Buzzing:} Currently, the car fails to execute turns (Left or Right). When commanded to turn, the motors emit a high-pitched buzzing sound but refuse to spin. This indicates that the motors lack the necessary torque to pivot the chassis, which implies either a severe voltage drop from the 7.4V battery pack, or damage to the L298N driver transistors.
+    \item \textbf{Complete Motor Failure (Current State):} In the most recent tests, the motors completely fail to turn even when the logic circuit is cleanly powered by the USB cable. This suggests a total failure of the motor power delivery system (e.g., depleted motor battery, fried L298N motor driver, or a disconnected common ground).
 \end{itemize}
-
-\section{Revised Strategy and Reduced Scope}
-Given the hard two-day deadline, the project scope must be tightened to guarantee a functional demonstration rather than chasing perfect hardware reliability. The strategy is now focused on demonstrating the core academic concepts: \textbf{memory efficiency} and \textbf{branching logic}.
-
-\subsection{Demonstration Goals}
-\begin{enumerate}
-    \item \textbf{Memory Saving (ATmega32):} Highlight the dual-MCU architecture as a memory-saving strategy. Show how offloading the heavy floating-point PID math, Bluetooth stack, and I2C sensor libraries to the ESP32 allows the ATmega32 to run a lightweight, highly responsive motor driver loop.
-    \item \textbf{Branching Logic \& Navigation:} Construct a simplified maze environment containing distinct branching points (e.g., T-junctions or Dead Ends). Demonstrate the ESP32 successfully reading the ToF sensors to map the intersection and making an autonomous decision to navigate through the branch.
-\end{enumerate}
-
-\subsection{Execution Plan}
-\begin{itemize}
-    \item \textbf{Embrace the Fallback:} Instead of spending hours attempting to hardware-filter the I2C electrical noise with capacitors, we will heavily rely on the \texttt{Timed Turn} fallback. We will manually tune the \texttt{ms\_per\_deg} constant to execute a roughly accurate 90-degree turn.
-    \item \textbf{Conservative Speeds:} Limit the base PWM speeds and Kp values to prevent aggressive maneuvers that trigger electrical brownouts.
-    \item \textbf{Simple Maze Layout:} Use a short track with clear, straight walls and one or two well-defined decision points rather than a massive, complex labyrinth. 
-\end{itemize}
-
-\section{Conclusion}
-The underlying logic and architecture of the maze solver are fundamentally sound and sophisticated. By shifting the focus away from perfect hardware execution towards a conceptual demonstration of dual-MCU memory distribution and intersection branching, the project can be successfully presented within the remaining timeframe.
 
 \end{document}
