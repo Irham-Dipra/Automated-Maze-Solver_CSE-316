@@ -224,6 +224,23 @@
  * does not matter how long the approach corridor was. */
 #define APPROACH_CRAWL      0.25f    /* fraction of the BL-MN span           */
 
+/* Longest the came-from block may last if that side never shows a wall (a
+ * turn into a corridor that opens again immediately). Generous, but finite so
+ * it can never latch on and hide a real turning forever. */
+#define BLOCK_BACKSTOP_MS   4000
+
+/* No front measurement for this long means the sensor has stopped answering.
+ * Driving on is not a degraded mode, it is driving blind: frontBlocked()
+ * reports false for a sensor that is not there, so the robot would never
+ * believe in a wall ahead and would meet the next one at full speed. */
+#define FRONT_DEAD_MS        600
+
+/* How long to stand at the junction gathering clean readings before choosing
+ * which way to go. The chassis is stationary and the side sensors are level
+ * with the openings -- the best view of the junction in the whole manoeuvre. */
+#define LOOK_SETTLE_MS       250
+#define LOOK_TIMEOUT_MS      900
+
 /* --- motors ----------------------------------------------------------- */
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
  * Your two motors are badly mismatched, so LT/RT trim each side
@@ -271,7 +288,13 @@
 #define GYRO_CAL_FULL      400
 #define GYRO_CAL_QUICK     120
 #define GYRO_CAL_INTERVAL_MS 2
-#define GYRO_CAL_MAX_SPREAD 250      /* raw LSB; larger = chassis was moving */
+/* Spread across a calibration run, in raw LSB, above which the chassis is
+ * judged to have been moving and the samples are thrown away. 250 LSB is only
+ * 3.8 deg/s and was rejecting three times at every junction on a chassis that
+ * had merely just braked -- so the bias was never refreshed at all. 600 LSB
+ * (~9 deg/s) still catches a robot that is genuinely still rolling while
+ * tolerating settle wobble. */
+#define GYRO_CAL_MAX_SPREAD 600
 #define GYRO_CAL_RETRIES     3
 #define GYRO_SETTLE_MS     250
 
@@ -334,10 +357,12 @@ struct TurnResult {
 
 enum MazeState {
     ST_IDLE, ST_STARTUP, ST_DRIVING, ST_APPROACHING, ST_CONFIRM_EXIT,
-    ST_STOPPING, ST_RECALIBRATING, ST_DECIDING, ST_RECOVERING, ST_FINISHED
+    ST_STOPPING, ST_RECALIBRATING, ST_LOOKING, ST_DECIDING, ST_RECOVERING,
+    ST_FINISHED
 };
 const char *ST_NAME[] = { "IDLE","STARTUP","DRIVING","APPROACH","CONFIRM_EXIT",
-                          "STOPPING","RECAL","DECIDING","RECOVER","FINISHED" };
+                          "STOPPING","RECAL","LOOKING","DECIDING","RECOVER",
+                          "FINISHED" };
 
 enum Junction { J_CORRIDOR, J_DEAD_END, J_ALL_OPEN, J_FWD_OR_LEFT,
                 J_FWD_OR_RIGHT, J_LEFT_OR_RIGHT, J_FORCED_LEFT, J_FORCED_RIGHT };
@@ -395,6 +420,7 @@ bool  m1_stopped = false;
 void pumpCommands(void);
 void printMenu(void);
 void driveStop(void);
+String rangeStr(int id);   /* telemetry formatter, used by the junction log */
 
 /* Called from inside every long-running blocking loop. Keeps the slave's
  * failsafe fed AND keeps STOP responsive. */
@@ -526,7 +552,18 @@ void motorStop(void)                      { motorSend('S', 0, 0); }
 void motorBrake(void)                     { motorSend('K', 0, 0); }
 void motorForward(int l, int r)           { motorSend('F', l, r); }
 /* clockwise != 0 pivots the chassis to the RIGHT */
-void motorPivot(bool clockwise, int pwm)  { motorSend(clockwise ? 'R' : 'L', pwm, pwm); }
+/* A pivot must apply LT/RT exactly like driving does. Sending the same raw
+ * PWM to both wheels looks symmetric but is not: with one motor weaker, the
+ * forward wheel out-pushes the reverse wheel, so the chassis rotates AND
+ * creeps forward instead of turning on the spot. Parked 65 mm off a wall,
+ * that creep is enough to jam the nose into it partway through the turn. */
+void motorPivot(bool clockwise, int pwm) {
+    int l = (pwm * cfg_left_trim)  / 100;
+    int r = (pwm * cfg_right_trim) / 100;
+    if (l > cfg_max_pwm) l = cfg_max_pwm;
+    if (r > cfg_max_pwm) r = cfg_max_pwm;
+    motorSend(clockwise ? 'R' : 'L', l, r);
+}
 
 /* ==========================================================================
  *  5. MPU6050  --  direct register access, no library
@@ -669,7 +706,10 @@ void tofClear(int id) {
     st[id].has_good = false;
     st[id].too_close = false;
     st[id].confident = false;
-    st[id].stamp = 0;
+    /* Stamp it now: a flush means "no history", not "sensor stopped
+     * answering". Leaving this at 0 would make the liveness check below
+     * declare the sensor dead for a moment after every pivot. */
+    st[id].stamp = millis();
     st[id].latch_until = 0;
     st[id].warmup = TOF_FLUSH_DISCARD;
     for (int k = 0; k < 3; k++) st[id].hist[k] = TOF_MAX_RANGE_MM;
@@ -839,6 +879,13 @@ bool tofOpen(int id) {
 }
 
 bool tofTooClose(int id) { return st[id].present && st[id].too_close; }
+
+/* Is the front sensor still answering at all? Distinct from tofValid(), which
+ * is false for a perfectly healthy sensor staring down an empty corridor. */
+bool frontAlive(void) {
+    if (!st[S_FRONT].present) return false;
+    return (millis() - st[S_FRONT].stamp) < FRONT_DEAD_MS;
+}
 
 uint8_t frontVotes(void) {
     uint8_t v = 0;
@@ -1177,6 +1224,27 @@ uint32_t  g_run_t0 = 0;
 bool      g_recover_begun = false;
 
 uint8_t   cnt_open_l = 0, cnt_open_r = 0, cnt_block_f = 0, cnt_deadend = 0;
+
+/* --- "do not turn back the way you came" -------------------------------
+ * After a right turn the corridor you arrived from lies to your RIGHT; after
+ * a left turn it lies to your LEFT. The right-hand rule sees that perfectly
+ * genuine opening and turns straight back into it, which is the repeated
+ * double-turn.
+ *
+ * RECOVER_MS alone cannot fix this: it is a race between a fixed 400 ms and
+ * however long the robot needs to clear an opening a whole corridor wide, and
+ * at these speeds it loses about half the time. Lengthening it just re-runs
+ * the same race at a different speed.
+ *
+ * Instead, ignore openings on that side until the side reports a solid WALL
+ * again -- the new corridor's wall coming alongside is proof the junction is
+ * physically behind us. That is self-timing: no dependence on SP, battery
+ * charge or corridor width. */
+int      s_blocked_side  = -1;      /* S_LEFT / S_RIGHT, or -1 for none     */
+uint32_t s_block_expires = 0;       /* backstop, in case no wall ever shows */
+uint8_t  s_block_wall_hits = 0;     /* consecutive valid wall readings      */
+
+#define BLOCK_WALL_CONFIRM  2       /* wall sightings needed to release     */
 bool      pend_right = true;
 bool      pend_180 = false;
 
@@ -1196,9 +1264,47 @@ void recordTurn(char c) {
     LOGf("PATH: %s", g_path);
 }
 
+/* Arm the block. Called right after a 90 degree pivot completes. A 180 needs
+ * no block: at a dead end, going back the way you came IS the correct move. */
+void blockCameFrom(bool turned_right) {
+    s_blocked_side    = turned_right ? S_RIGHT : S_LEFT;
+    s_block_expires   = millis() + BLOCK_BACKSTOP_MS;
+    s_block_wall_hits = 0;
+    LOGf("ignoring %s openings until a wall appears there (came from)",
+         turned_right ? "RIGHT" : "LEFT");
+}
+
+/* Release once that side genuinely sees a wall, or when the backstop runs
+ * out. The wall sighting must come from VALID data: the ToF history is wiped
+ * after every pivot, and an empty filter reads as "not open", which would
+ * clear the block instantly and achieve nothing. */
+void updateCameFromBlock(void) {
+    if (s_blocked_side < 0) return;
+
+    if ((int32_t)(millis() - s_block_expires) >= 0) {
+        LOG("came-from block timed out, openings live again");
+        s_blocked_side = -1;
+        return;
+    }
+    if (tofValid(s_blocked_side) && !tofOpen(s_blocked_side)) {
+        if (++s_block_wall_hits >= BLOCK_WALL_CONFIRM) {
+            LOG("wall alongside -- junction cleared, openings live again");
+            s_blocked_side = -1;
+        }
+    } else {
+        s_block_wall_hits = 0;
+    }
+}
+
 void updateDebounce(void) {
+    updateCameFromBlock();
+
     if (tofOpen(S_LEFT))  { if (cnt_open_l  < 255) cnt_open_l++;  } else cnt_open_l  = 0;
     if (tofOpen(S_RIGHT)) { if (cnt_open_r  < 255) cnt_open_r++;  } else cnt_open_r  = 0;
+
+    /* The side we arrived from is not a turning, whatever the sensor says. */
+    if (s_blocked_side == S_LEFT)  cnt_open_l = 0;
+    if (s_blocked_side == S_RIGHT) cnt_open_r = 0;
     if (frontBlocked())   { if (cnt_block_f < 255) cnt_block_f++; } else cnt_block_f = 0;
 
     if (frontBlocked() && !tofOpen(S_LEFT) && !tofOpen(S_RIGHT)) {
@@ -1251,6 +1357,19 @@ void mazeTick(void) {
         break;
 
     case ST_DRIVING: {
+        /* Front sensor stopped answering mid-run: stop NOW. Carrying on means
+         * meeting the next wall at full speed with nothing to see it. */
+        if (!frontAlive()) {
+            driveStopHard();
+            LOG("");
+            LOG("*** FRONT SENSOR LOST -- stopping ***");
+            LOG("  No front measurement for 600 ms. The robot cannot see walls");
+            LOG("  ahead, so it will not keep driving. Likely a loose XSHUT or");
+            LOG("  power connection shaken out by vibration.");
+            g_running = false;
+            enterState(ST_IDLE);
+            break;
+        }
         driveTick();
         if (g_stalled) { enterState(ST_IDLE); break; }
         updateDebounce();
@@ -1275,8 +1394,10 @@ void mazeTick(void) {
             bool turn_now, right;
             chooseTurn(j, turn_now, right);
             if (turn_now) {
+                /* Provisional only -- ST_LOOKING re-decides at the junction
+                 * itself, where the view is actually good. */
                 pend_right = right;
-                pend_180 = false;
+                pend_180 = (j == J_DEAD_END);
                 enterState(ST_APPROACHING);   /* drive the axle to the opening */
             } else {
                 /* chose to continue straight: suppress re-triggering on this
@@ -1376,9 +1497,64 @@ void mazeTick(void) {
     case ST_RECALIBRATING:
         gyroCalibrate(GYRO_CAL_QUICK, "recal");
         headingReset();
-        tofFlush();
+        tofFlush();          /* everything measured while moving is history */
+        enterState(ST_LOOKING);
+        break;
+
+    /* ------------------------------------------------------------------
+     * LOOK, THEN CHOOSE.
+     *
+     * The direction used to be chosen back in DRIVING, the instant a
+     * junction was first suspected -- up to FB millimetres away, at speed,
+     * with the side sensors still pointed at corridor walls. In the 21:19 log
+     * that meant deciding while the left had opened and the right had not yet
+     * come into view: "forced left" at a junction that was actually open both
+     * ways, and the robot turned the wrong way.
+     *
+     * By here the chassis is parked with its axle on the junction centreline
+     * and both side sensors are looking straight down their openings. Costs
+     * no extra stop: under the right-hand rule every outcome except "carry
+     * straight on" required stopping anyway, and "carry straight on" never
+     * reaches this state.
+     * ------------------------------------------------------------------ */
+    case ST_LOOKING: {
+        motorStop();
+
+        /* Let the flushed filters refill before believing anything. */
+        bool ready = tofValid(S_LEFT) || tofOpen(S_LEFT);
+        ready = ready && (tofValid(S_RIGHT) || tofOpen(S_RIGHT));
+        if (!inStateFor(LOOK_SETTLE_MS)) break;
+        if (!ready && !inStateFor(LOOK_TIMEOUT_MS)) break;
+
+        updateCameFromBlock();
+
+        bool right_open = tofOpen(S_RIGHT) && (s_blocked_side != S_RIGHT);
+        bool left_open  = tofOpen(S_LEFT)  && (s_blocked_side != S_LEFT);
+        bool front_wall = frontBlocked();
+
+        LOGf("at junction: F:%s L:%s R:%s -> %s",
+             rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
+             rangeStr(S_RIGHT).c_str(),
+             right_open ? "RIGHT" : (!front_wall ? "STRAIGHT"
+                        : (left_open ? "LEFT" : "U-TURN")));
+
+        /* Right-hand rule, in priority order. */
+        if (right_open)        { pend_180 = false; pend_right = true;  }
+        else if (!front_wall)  {
+            /* The opening we came to take is not there after all. Carrying
+             * on beats pivoting into a wall on stale information. */
+            LOG("no turning here after all -- carrying straight on");
+            cnt_open_l = cnt_open_r = cnt_block_f = cnt_deadend = 0;
+            g_leg_t0 = millis();
+            enterState(ST_RECOVERING);
+            break;
+        }
+        else if (left_open)    { pend_180 = false; pend_right = false; }
+        else                   { pend_180 = true;  }
+
         enterState(ST_DECIDING);
         break;
+    }
 
     case ST_DECIDING: {
         TurnResult r;
@@ -1394,6 +1570,10 @@ void mazeTick(void) {
         LOGf("  achieved %.1f deg  (pre-nudge err %.1f)  nudges=%d%s",
              r.achieved_deg, r.initial_err_deg, r.nudges,
              r.timed_out ? "  TIMED OUT" : "");
+        /* A 90 leaves the corridor we arrived from on the side we turned
+         * toward. A 180 does not: at a dead end, back the way we came is
+         * exactly where we want to go. */
+        if (!pend_180) blockCameFrom(pend_right);
         enterState(ST_RECOVERING);
         break;
     }
@@ -1486,6 +1666,8 @@ void printMenu(void) {
 void resetRunState(void) {
     m1_begun = false;
     m1_stopped = false;
+    s_blocked_side    = -1;
+    s_block_wall_hits = 0;
     g_stalled = false;
     g_path_len = 0; g_path[0] = 0;
     cnt_open_l = cnt_open_r = cnt_block_f = cnt_deadend = 0;
@@ -1516,6 +1698,17 @@ void handleCommand(String c) {
 
     if (c == "START") {
         if (!mpu_ok) { LOG("refusing to start: MPU6050 not responding"); return; }
+        /* Without a front sensor frontBlocked() is permanently false, so the
+         * robot never believes in a wall ahead and drives into the first one
+         * at full speed. That is not a degraded mode worth offering. */
+        if (cfg_mode == 3 && !st[S_FRONT].present) {
+            LOG("refusing to start the maze: FRONT sensor never initialised.");
+            LOG("  Without it the robot cannot see walls ahead and will drive");
+            LOG("  into them. Check the wiring and XSHUT on GPIO19, or swap the");
+            LOG("  front and left modules to find out which is at fault.");
+            LOG("  MODE:0 and MODE:1 still work for diagnosis.");
+            return;
+        }
         if (g_running) {
             LOG("already running -- send STOP first");
             return;
