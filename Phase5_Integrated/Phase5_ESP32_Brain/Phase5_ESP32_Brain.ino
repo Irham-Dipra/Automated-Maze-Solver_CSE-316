@@ -272,8 +272,37 @@ float cfg_kw         = DEF_KW;
 float cfg_margin     = DEF_STOP_MARGIN_DEG;
 int   cfg_gyro_sign  = 1;            /* flip with GS:-1 if mounted inverted */
 int   cfg_mode       = 3;            /* 0 telemetry 1 straight 2 turn 3 maze */
+bool  cfg_log        = true;         /* LOG:0 silences the telemetry stream */
 
 bool  g_running      = false;        /* START/STOP from the phone           */
+
+/* STOP must work even in the middle of a pivot or a gyro calibration, which
+ * block for many seconds. Those routines poll g_abort and bail out, and they
+ * call serviceWhileBusy() so the command is actually READ while they run --
+ * the original code only heartbeated the motors in those loops, so a STOP
+ * sent during a turn was not seen until the turn had already finished. */
+volatile bool g_abort = false;
+
+/* Telemetry is held off for a moment after the menu prints, so the menu is
+ * still readable instead of being buried by the next telemetry line. */
+uint32_t g_quiet_until = 0;
+#define MENU_QUIET_MS 4000
+
+/* MODE 1 run state. These were function-level statics, which meant they were
+ * never reset: the first START worked and every START after a STOP silently
+ * did nothing. */
+bool  m1_begun   = false;
+bool  m1_stopped = false;
+
+/* Forward declarations -- the blocking routines in sections 6 and 9 need to
+ * pump the command parser, which is defined later in section 11. */
+void pumpCommands(void);
+void printMenu(void);
+void driveStop(void);
+
+/* Called from inside every long-running blocking loop. Keeps the slave's
+ * failsafe fed AND keeps STOP responsive. */
+void serviceWhileBusy(void);
 
 /* ==========================================================================
  *  3. LOGGING
@@ -328,6 +357,14 @@ void motorSend(char cmd, int left, int right) {
 void motorHeartbeat(void) {
     if (millis() - g_last_tx >= HEARTBEAT_MS)
         motorSend(g_last_cmd, g_last_l, g_last_r);
+}
+
+/* The single thing every blocking wait must call. Feeds the slave failsafe
+ * and reads incoming commands, so STOP is honoured mid-pivot instead of
+ * queueing up behind it. */
+void serviceWhileBusy(void) {
+    motorHeartbeat();
+    pumpCommands();
 }
 
 void motorStop(void)                      { motorSend('S', 0, 0); }
@@ -394,12 +431,13 @@ static bool calibrateOnce(int samples) {
     GyroXYZ g;
 
     for (int i = 0; i < samples; i++) {
+        if (g_abort) return false;          /* STOP pressed mid-calibration */
         if (!mpuReadAll(g)) return false;
         sx += g.x; sy += g.y; sz += g.z;
         if (g.z < zmin) zmin = g.z;
         if (g.z > zmax) zmax = g.z;
         delay(GYRO_CAL_INTERVAL_MS);
-        motorHeartbeat();
+        serviceWhileBusy();
     }
     if ((long)zmax - (long)zmin > GYRO_CAL_MAX_SPREAD) return false;
 
@@ -413,6 +451,7 @@ bool gyroCalibrate(int samples, const char *what) {
     motorStop();
     delay(GYRO_SETTLE_MS);
     for (int t = 0; t < GYRO_CAL_RETRIES; t++) {
+        if (g_abort) { LOG("calibration aborted"); return false; }
         if (calibrateOnce(samples)) {
             LOGf("%s ok  offZ=%.1f offX=%.1f offY=%.1f", what, g_off_z, g_off_x, g_off_y);
             return true;
@@ -666,7 +705,8 @@ void driveBegin(void) {
     /* breakaway kick: these motors will not start from rest at cruise PWM */
     motorForward((KICK_PWM * cfg_left_trim) / 100, (KICK_PWM * cfg_right_trim) / 100);
     uint32_t t0 = millis();
-    while (millis() - t0 < KICK_MS) { motorHeartbeat(); }
+    while (millis() - t0 < KICK_MS && !g_abort) { serviceWhileBusy(); }
+    if (g_abort) motorStop();
 }
 
 void driveStop(void) {
@@ -792,7 +832,7 @@ void driveTick(void) {
  *  measures the angle instead, including the coast after the motors are cut.
  * ======================================================================== */
 static void turnSampleUntil(uint32_t &next_ms) {
-    while ((int32_t)(millis() - next_ms) < 0) { motorHeartbeat(); }
+    while ((int32_t)(millis() - next_ms) < 0 && !g_abort) { serviceWhileBusy(); }
     headingSample(TURN_TICK_MS);
     next_ms += TURN_TICK_MS;
 }
@@ -801,8 +841,10 @@ static void turnSampleUntil(uint32_t &next_ms) {
  * happens uncounted. Used for the kick, the brake and each nudge. */
 static void pulseTracked(bool cw, int pwm, uint16_t ms, uint32_t &next_ms) {
     uint32_t t0 = millis();
+    if (g_abort) return;
     motorPivot(cw, pwm);
-    while (millis() - t0 < ms) turnSampleUntil(next_ms);
+    while (millis() - t0 < ms && !g_abort) turnSampleUntil(next_ms);
+    if (g_abort) motorStop();
 }
 
 /* Motors off, still integrating: the chassis coasts after power is cut and
@@ -810,7 +852,7 @@ static void pulseTracked(bool cw, int pwm, uint16_t ms, uint32_t &next_ms) {
 static void settleTracked(uint16_t ms, uint32_t &next_ms) {
     uint32_t t0 = millis();
     motorStop();
-    while (millis() - t0 < ms) turnSampleUntil(next_ms);
+    while (millis() - t0 < ms && !g_abort) turnSampleUntil(next_ms);
 }
 
 void turnExecute(float degrees, bool right, TurnResult &res) {
@@ -830,6 +872,7 @@ void turnExecute(float degrees, bool right, TurnResult &res) {
     float stop_at = degrees - cfg_margin;
     motorPivot(cw, cfg_turn_pwm);
     while (fabsf(g_heading_deg) < stop_at) {
+        if (g_abort) break;
         if (millis() - t_start > TURN_TIMEOUT_MS) { res.timed_out = true; break; }
         turnSampleUntil(next_ms);
     }
@@ -848,6 +891,7 @@ void turnExecute(float degrees, bool right, TurnResult &res) {
      *    through a tiny one, which oscillates instead of converging. */
     for (int i = 0; i < TURN_MAX_NUDGES; i++) {
         float err = degrees - fabsf(g_heading_deg);
+        if (g_abort) break;
         if (fabsf(err) <= TURN_DEADBAND_DEG) break;
         if (millis() - t_start > TURN_TIMEOUT_MS) { res.timed_out = true; break; }
 
@@ -862,6 +906,13 @@ void turnExecute(float degrees, bool right, TurnResult &res) {
 
     motorStop();
     res.achieved_deg = fabsf(g_heading_deg);
+
+    if (g_abort) {           /* STOP during the pivot: do not start a recal */
+        LOG("pivot aborted by STOP");
+        tofFlush();
+        headingReset();
+        return;
+    }
 
     /* The chassis is stationary here -- the only moment a valid bias
      * measurement is possible. And everything in the ToF filters was measured
@@ -878,9 +929,10 @@ void turn180(TurnResult &res) {
     /* Two 90s with a settle between beats one long sweep: momentum has less
      * time to build, so there is less coast to correct for. */
     TurnResult a, b;
+    memset(&b, 0, sizeof(b));
     turnExecute(90.0f, true, a);
     delay(200);
-    turnExecute(90.0f, true, b);
+    if (!g_abort) turnExecute(90.0f, true, b);
     res.achieved_deg    = a.achieved_deg + b.achieved_deg;
     res.initial_err_deg = a.initial_err_deg + b.initial_err_deg;
     res.nudges          = a.nudges + b.nudges;
@@ -1111,9 +1163,21 @@ void mazeTick(void) {
 /* ==========================================================================
  *  11. BLUETOOTH COMMAND MENU
  * ======================================================================== */
+const char *MODE_NAME[4] = { "SENSORS-ONLY", "STRAIGHT-TEST", "TURN-TEST", "MAZE" };
+
+const char *modeName(int m) {
+    return (m >= 0 && m <= 3) ? MODE_NAME[m] : "INVALID";
+}
+
 void printMenu(void) {
+    /* Hold the telemetry stream off so the menu stays on screen long enough
+     * to actually read it. */
+    g_quiet_until = millis() + MENU_QUIET_MS;
     LOG("");
     LOG("=== PHASE 5 GYRO MAZE SOLVER ===");
+    LOGf("  CURRENT MODE : %d (%s)", cfg_mode, modeName(cfg_mode));
+    LOGf("  STATE        : %s", g_running ? "RUNNING" : "IDLE - send START to run");
+    LOG("  --------------------------------");
     LOGf("  MODE:%d   0=sensors 1=straight 2=turn-test 3=maze", cfg_mode);
     LOGf("  BL:%d     base PWM          MN:%d  stall floor", cfg_base_pwm, cfg_min_pwm);
     LOGf("  MX:%d     max PWM           TP:%d  pivot PWM",   cfg_max_pwm, cfg_turn_pwm);
@@ -1121,8 +1185,22 @@ void printMenu(void) {
     LOGf("  KP:%.2f  KD:%.2f  KW:%.4f   TM:%.1f pivot stop margin",
          cfg_kp, cfg_kd, cfg_kw, cfg_margin);
     LOGf("  FD:%d     front stop mm     GS:%d  gyro sign", cfg_front_stop, cfg_gyro_sign);
+    LOGf("  LOG:%d     telemetry stream on/off", cfg_log ? 1 : 0);
     LOG("  START | STOP | CAL | MENU");
     LOG("================================");
+}
+
+/* Everything that must be forgotten between runs. Called by both START and
+ * STOP, so a STOP followed by a START genuinely restarts -- MODE 1 used to
+ * keep its progress in function-level statics and silently refuse to rerun. */
+void resetRunState(void) {
+    m1_begun = false;
+    m1_stopped = false;
+    g_stalled = false;
+    g_path_len = 0; g_path[0] = 0;
+    cnt_open_l = cnt_open_r = cnt_block_f = cnt_deadend = 0;
+    tofFlush();
+    headingReset();
 }
 
 void handleCommand(String c) {
@@ -1130,29 +1208,74 @@ void handleCommand(String c) {
     c.toUpperCase();
     if (!c.length()) return;
 
-    if (c == "START") {
-        if (!mpu_ok) { LOG("refusing to start: MPU6050 not responding"); return; }
-        g_running = true;
-        g_stalled = false;
-        g_path_len = 0; g_path[0] = 0;
-        g_run_t0 = millis();
-        tofFlush();
-        headingReset();
-        cnt_open_l = cnt_open_r = cnt_block_f = cnt_deadend = 0;
-        enterState(ST_STARTUP);
-        LOG(">>> STARTING <<<");
+    /* STOP is handled FIRST and unconditionally. It is the one command that
+     * must never be refused or queued. */
+    if (c == "STOP") {
+        g_abort   = true;
+        g_running = false;
+        driveStop();
+        motorStop();
+        enterState(ST_IDLE);
+        resetRunState();
+        LOG("");
+        LOGf(">>> HALTED <<<  mode stays %d (%s). Send START to run it again.",
+             cfg_mode, modeName(cfg_mode));
+        g_quiet_until = millis() + MENU_QUIET_MS;
         return;
     }
-    if (c == "STOP")  { g_running = false; driveStop(); enterState(ST_IDLE); LOG(">>> HALTED <<<"); return; }
+
+    if (c == "START") {
+        if (!mpu_ok) { LOG("refusing to start: MPU6050 not responding"); return; }
+        if (g_running) {
+            LOG("already running -- send STOP first");
+            return;
+        }
+        g_abort = false;            /* clear any latched abort from last STOP */
+        resetRunState();
+        g_running = true;
+        g_run_t0 = millis();
+        enterState(ST_STARTUP);
+        LOG("");
+        LOGf(">>> STARTING  mode %d (%s) <<<", cfg_mode, modeName(cfg_mode));
+        return;
+    }
+
     if (c == "MENU")  { printMenu(); return; }
-    if (c == "CAL")   { driveStop(); gyroCalibrate(GYRO_CAL_FULL, "full cal"); headingReset(); return; }
+
+    if (c == "CAL") {
+        if (g_running) { LOG("send STOP before calibrating"); return; }
+        g_abort = false;
+        driveStop();
+        gyroCalibrate(GYRO_CAL_FULL, "full cal");
+        headingReset();
+        return;
+    }
 
     int colon = c.indexOf(':');
     if (colon < 0) { LOG("? unknown command -- send MENU"); return; }
     String k = c.substring(0, colon);
     float  v = c.substring(colon + 1).toFloat();
 
-    if      (k == "MODE") cfg_mode       = (int)v;
+    /* Changing the mode is starting a new session, so it always goes through
+     * STOP -> MODE -> START. Silently swapping the mode out from under a
+     * running maze was how the old build ended up in states nobody could
+     * account for. */
+    if (k == "MODE") {
+        int m = (int)v;
+        if (m < 0 || m > 3) { LOG("? mode must be 0, 1, 2 or 3"); return; }
+        if (g_running) {
+            LOGf("send STOP first -- still running mode %d (%s)",
+                 cfg_mode, modeName(cfg_mode));
+            return;
+        }
+        cfg_mode = m;
+        LOG("");
+        LOGf(">>> MODE SET TO %d (%s) -- send START to run it <<<", cfg_mode, modeName(cfg_mode));
+        g_quiet_until = millis() + MENU_QUIET_MS;
+        return;
+    }
+
+    if      (k == "LOG")  cfg_log        = (v != 0);
     else if (k == "BL")   cfg_base_pwm   = (int)v;
     else if (k == "MN")   cfg_min_pwm    = (int)v;
     else if (k == "MX")   cfg_max_pwm    = (int)v;
@@ -1171,10 +1294,21 @@ void handleCommand(String c) {
 
 void pumpCommands(void) {
     static String line;
+    static bool   busy = false;
+
+    /* Re-entrancy guard. serviceWhileBusy() calls this from inside blocking
+     * routines, and some commands (CAL, and STOP during a pivot) run code
+     * that calls serviceWhileBusy() again. Without this, handleCommand()
+     * could recurse and the shared line buffer would be shredded mid-parse. */
+    if (busy) return;
+    busy = true;
+
     while (Serial.available())   { char ch = Serial.read();
         if (ch == '\n' || ch == '\r') { handleCommand(line); line = ""; } else line += ch; }
     while (bt_ready && SerialBT.available()) { char ch = SerialBT.read();
         if (ch == '\n' || ch == '\r') { handleCommand(line); line = ""; } else line += ch; }
+
+    busy = false;
 }
 
 /* ==========================================================================
@@ -1190,10 +1324,22 @@ String rangeStr(int id) {
 
 void telemetry(void) {
     static uint32_t last = 0;
+
+    /* Three separate gates, all of which caused the "menu is unreadable"
+     * problem when they were missing:
+     *   - LOG:0 turns the stream off entirely
+     *   - an idle robot has nothing to report, so it stays quiet and you can
+     *     actually read the menu and type commands
+     *   - a short quiet window after the menu or a mode change keeps that
+     *     output on screen instead of burying it in 150 ms                  */
+    if (!cfg_log) return;
+    if (!g_running) return;
+    if ((int32_t)(millis() - g_quiet_until) < 0) return;
+
     if (millis() - last < TELEMETRY_MS) return;
     last = millis();
-    LOGf("%-8s F:%-5s L:%-5s R:%-5s fv:%d | Hdg:%+6.1f Tgt:%+5.1f Rate:%+6.1f Corr:%+5.0f | L:%3d R:%3d",
-         ST_NAME[g_state], rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
+    LOGf("M%d %-8s F:%-5s L:%-5s R:%-5s fv:%d | Hdg:%+6.1f Tgt:%+5.1f Rate:%+6.1f Corr:%+5.0f | L:%3d R:%3d",
+         cfg_mode, ST_NAME[g_state], rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
          rangeStr(S_RIGHT).c_str(), frontVotes(),
          g_heading_deg, g_target_heading, g_rate_dps, g_last_corr, g_pwm_l, g_pwm_r);
 }
@@ -1288,33 +1434,50 @@ void loop() {
             break;
 
         case 1: {                                 /* straight-line test      */
-            static bool begun = false, stopped = false;
-            if (!begun) { driveBegin(); begun = true; }
-            if (!stopped) {
+            /* m1_begun/m1_stopped are file-scope and reset by START and STOP.
+             * As function-level statics they survived a STOP, so the second
+             * START looked like the firmware had hung. */
+            if (!m1_begun) { driveBegin(); m1_begun = true; }
+            if (!m1_stopped) {
                 if (frontBlocked()) {
-                    driveStop(); stopped = true;
-                    LOG("MODE1: front obstacle -- stopped");
+                    driveStop(); m1_stopped = true;
+                    LOG("MODE1: front obstacle -- stopped. Send STOP then START to rerun.");
                 } else driveTick();
             }
-            if (g_stalled) { stopped = true; }
+            if (g_stalled) m1_stopped = true;
             break;
         }
 
         case 2: {                                 /* single 90 deg pivot     */
             TurnResult r;
             motorStop();
-            delay(STARTUP_DELAY_MS);
-            turn90(true, r);
-            LOGf("TURN TEST: achieved %.1f deg | pre-nudge err %.1f | nudges %d%s",
-                 r.achieved_deg, r.initial_err_deg, r.nudges,
-                 r.timed_out ? " | TIMED OUT" : "");
-            LOG("err > 0 means it undershot -> LOWER TM.  err < 0 -> RAISE TM.");
+            /* Serviced wait, not delay(): STOP must be honoured during the
+             * three seconds before the robot lurches into its pivot. */
+            LOG("TURN TEST: pivoting in 3 s -- send STOP to cancel");
+            {
+                uint32_t t0 = millis();
+                while (millis() - t0 < STARTUP_DELAY_MS && !g_abort) serviceWhileBusy();
+            }
+            if (!g_abort) {
+                turn90(true, r);
+                if (!g_abort) {
+                    LOGf("TURN TEST: achieved %.1f deg | pre-nudge err %.1f | nudges %d%s",
+                         r.achieved_deg, r.initial_err_deg, r.nudges,
+                         r.timed_out ? " | TIMED OUT" : "");
+                    LOG("err > 0 means it undershot -> LOWER TM.  err < 0 -> RAISE TM.");
+                }
+            }
+            motorStop();
             g_running = false;
+            if (!g_abort)
+                LOG("TURN TEST done -- send START to repeat, or MODE:n for another mode.");
+            g_quiet_until = millis() + MENU_QUIET_MS;
             break;
         }
 
         default:                                  /* full maze               */
             mazeTick();
+            if (g_abort) { driveStop(); g_running = false; enterState(ST_IDLE); break; }
             if (millis() - g_run_t0 > MAX_RUN_MS) {
                 driveStop();
                 LOG("RUN LIMIT reached -- halted");

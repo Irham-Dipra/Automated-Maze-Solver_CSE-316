@@ -216,13 +216,48 @@ compensate a dead channel.
 
 ## 3. Bring-up order — do not skip steps
 
-Everything is switchable at runtime over Bluetooth (`MazeSolver_P5`).
-Send `MENU` at any time. All commands are `KEY:VALUE`, plus `START`, `STOP`,
-`CAL`, `MENU`.
+Everything is switchable at runtime over Bluetooth (`MazeSolver_P5`), or over
+USB serial at 115200 — both accept exactly the same commands.
+
+### How the menu works
+
+Commands fire on a **newline or carriage return**, so your terminal app must
+append one. They are case-insensitive, and there must be **no spaces around
+the colon** (`MODE:2`, never `MODE : 2`).
+
+Every session follows the same three steps:
+
+```
+STOP       ← always safe, always works, even mid-pivot
+MODE:2     ← refused while running, so STOP first
+START      ← nothing runs until you send this
+```
+
+- **`STOP`** is handled before anything else and is never refused. It aborts a
+  pivot or a gyro calibration in progress, cuts the motors, clears the run
+  state and returns to idle. The mode is kept, so `START` re-runs it.
+- **`MODE:n`** is refused while a run is in progress — it tells you to `STOP`
+  first. Changing mode is starting a new session, so it always goes
+  `STOP → MODE → START`.
+- **`START`** is refused if something is already running.
+- **`MENU`** prints the current mode, the running/idle state and every setting.
+
+### Reading the screen
+
+Telemetry is **silent while the robot is idle**, so the menu and command
+replies are readable. It resumes on `START`. It is also held off for 4 seconds
+after the menu, a mode change or a `STOP`, so those messages are not buried.
+
+`LOG:0` turns the telemetry stream off entirely; `LOG:1` turns it back on.
+
+Each telemetry line starts with the active mode and state, e.g.
+`M3 DRIVING  F:412 L:180 R:175 ...` — that is how you confirm a command landed
+without having to catch the menu.
 
 ### Step 1 — `MODE:0` (sensors only, motors never move)
 
 ```
+STOP
 MODE:0
 START
 ```
@@ -237,11 +272,12 @@ Check the telemetry line:
 ### Step 2 — `MODE:2` (single 90° right pivot)
 
 ```
+STOP
 MODE:2
 START
 ```
 
-It reports:
+It waits 3 s (send `STOP` to cancel), pivots, then reports:
 
 ```
 TURN TEST: achieved 88.4 deg | pre-nudge err 3.2 | nudges 1
@@ -259,10 +295,13 @@ Repeat until `pre-nudge err` is within about ±3° with zero or one nudge.
 ### Step 3 — `MODE:1` (straight corridor run)
 
 ```
+STOP
 MODE:1
 BL:110
 START
 ```
+
+After it halts on an obstacle, send `STOP` then `START` to run it again.
 
 Tune in this order, one at a time:
 1. `BL` — lowest value at which **both** wheels reliably start. Too low and
@@ -290,11 +329,13 @@ These are estimates in the source and **must** be replaced:
 ### Step 5 — `MODE:3` (full maze)
 
 ```
+STOP
 MODE:3
 START
 ```
 
-`STOP` halts it at any time. The recorded path prints on completion.
+`STOP` halts it at any time, including mid-pivot. The recorded path prints on
+completion.
 
 ---
 
