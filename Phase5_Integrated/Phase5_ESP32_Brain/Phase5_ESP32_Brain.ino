@@ -128,10 +128,30 @@
 #define TOF_MAX_JUMP_MM     200      /* a wall cannot move this fast        */
 #define TOF_NEAR_LATCH_MM   120      /* lost echo + last reading this close
                                         means the wall got NEARER, not gone */
+#define TOF_LATCH_MS        400      /* how long that inference stays valid.
+                                        MUST be finite: after a pivot the view
+                                        ahead really does change from 100 mm
+                                        to infinity, and an unbounded latch
+                                        can never notice.                    */
+#define TOF_FLUSH_DISCARD     2      /* samples binned after a flush         */
 
-#define OPENING_THRESHOLD_MM  (CORRIDOR_HALF_MM + 100)   /* 280 mm */
-#define FRONT_BLOCKED_MM      220
+/* These three are power-on DEFAULTS for the runtime-tunable cfg_* values
+ * below. FRONT_BLOCKED is the distance at which a wall ahead is BELIEVED (it
+ * drives the vote window); FRONT_STOP is only how close the robot coasts in
+ * APPROACH before pivoting. Tuning FRONT_STOP can never fix late detection --
+ * that is what FB is for, and it is why 220 mm was not enough stopping
+ * distance once the chassis was running fast. */
+#define DEF_OPENING_MM        (CORRIDOR_HALF_MM + 100)   /* 280 mm */
+#define DEF_FRONT_BLOCKED_MM  300
 #define FRONT_STOP_MM         120    /* stop this far off a wall before pivot */
+
+/* Side wall closer than this gets an active, ramped steer-away. Previously
+ * avoidance only fired on the sub-measurable "too close" flag (40 mm), i.e.
+ * once the chassis was already touching -- the 59 mm approach in the 14:18
+ * log got nothing but a 7 degree hint. mahee's drive.c fixes exactly this
+ * and the fix was lost in the port. */
+#define DEF_WALL_EMERG_MM      90
+#define WALL_EMERG_EXTRA_DEG  12.0f  /* added to the tilt cap at contact     */
 
 #define OPENING_CONFIRM       2
 #define DEADEND_CONFIRM       3
@@ -237,6 +257,14 @@ struct ToFState {
     bool     too_close;      /* wall present but nearer than measurable     */
     bool     confident;
     uint32_t stamp;
+    uint32_t latch_until;    /* the near-wall latch EXPIRES at this time.
+                                Without a deadline the latch fed itself and
+                                jammed the sensor permanently -- see tofPoll */
+    uint8_t  warmup;         /* samples to discard after a flush. The sensor
+                                has a measurement already in flight, taken
+                                while the chassis was mid-pivot and aimed at
+                                a wall 100 mm away; letting that land is what
+                                armed the latch after every turn.            */
 };
 
 struct TurnResult {
@@ -266,6 +294,10 @@ int   cfg_left_trim  = DEF_LEFT_TRIM;
 int   cfg_right_trim = DEF_RIGHT_TRIM;
 int   cfg_turn_pwm   = DEF_TURN_PWM;
 int   cfg_front_stop = FRONT_STOP_MM;
+int   cfg_front_blk  = DEF_FRONT_BLOCKED_MM;   /* FB -- "wall ahead" belief  */
+int   cfg_opening    = DEF_OPENING_MM;         /* OP -- "side is open"       */
+int   cfg_wall_emerg = DEF_WALL_EMERG_MM;      /* WE -- hard steer-away      */
+int   cfg_speed      = TRAVEL_SPEED_MMS;       /* SP -- measured mm/s        */
 float cfg_kp         = DEF_KP;
 float cfg_kd         = DEF_KD;
 float cfg_kw         = DEF_KW;
@@ -303,6 +335,14 @@ void driveStop(void);
 /* Called from inside every long-running blocking loop. Keeps the slave's
  * failsafe fed AND keeps STOP responsive. */
 void serviceWhileBusy(void);
+
+/* How long to keep driving after spotting an opening, so the AXLE rather than
+ * the nose ends up in the middle of it. Depends on the measured travel speed,
+ * so it is computed rather than a compile-time constant. */
+uint32_t approachMs(void) {
+    int sp = (cfg_speed > 10) ? cfg_speed : 10;
+    return (uint32_t)APPROACH_MM * 1000UL / (uint32_t)sp;
+}
 
 /* ==========================================================================
  *  3. LOGGING
@@ -515,6 +555,8 @@ void tofClear(int id) {
     st[id].too_close = false;
     st[id].confident = false;
     st[id].stamp = 0;
+    st[id].latch_until = 0;
+    st[id].warmup = TOF_FLUSH_DISCARD;
     for (int k = 0; k < 3; k++) st[id].hist[k] = TOF_MAX_RANGE_MM;
 }
 
@@ -586,22 +628,42 @@ void tofPoll(int id) {
     else if (raw > TOF_MAX_RANGE_MM)         v = TOF_MAX_RANGE_MM;
     else                                     v = raw;
 
+    /* Throw away the first samples after a flush: they were captured while
+     * the robot was still pivoting and describe a wall it is no longer
+     * pointing at. */
+    if (p.warmup) { p.warmup--; return; }
+
+    /* Record the genuine measurement BEFORE any interpretation. last_good
+     * must only ever hold something the sensor actually measured. The old
+     * code wrote the synthetic TOF_TOO_CLOSE_MM back into last_good, which
+     * made the latch below self-sustaining: once set, last_good was 40, 40 is
+     * under TOF_NEAR_LATCH_MM, so every subsequent out-of-range reading
+     * re-armed the latch and wrote 40 again. In an open corridor (where
+     * out-of-range is the normal reading) the front sensor then reported
+     * "wall touching me" forever and the robot turned at every junction.    */
+    bool lost_echo = (v >= TOF_MAX_RANGE_MM);
+    if (!lost_echo) { p.last_good = v; p.has_good = true; }
+
     /* Disambiguate a lost echo. Very near or very dark surfaces give the same
      * "out of range" status as open space. History resolves it: a wall that
-     * was 8 cm away 60 ms ago did not vanish, it got closer. Conflating the
-     * two is how the old code reported an OPENING at the moment of impact. */
-    bool too_close = (v <= TOF_TOO_CLOSE_MM);
-    if (v >= TOF_MAX_RANGE_MM && p.has_good && p.last_good <= TOF_NEAR_LATCH_MM)
-        too_close = true;
+     * was 8 cm away 60 ms ago did not vanish, it got closer.
+     *
+     * But that inference is only valid for a short while. It is evidence with
+     * a shelf life, so it now carries an explicit deadline -- after a pivot
+     * the view ahead legitimately changes from 100 mm to infinity, and
+     * without the deadline the robot could never notice.                     */
+    bool measured_near = (v <= TOF_TOO_CLOSE_MM);
+    if (measured_near) p.latch_until = millis() + TOF_LATCH_MS;
 
-    if (too_close) {
+    bool latch_live = ((int32_t)(millis() - p.latch_until) < 0);
+    bool inferred_near = lost_echo && p.has_good &&
+                         p.last_good <= TOF_NEAR_LATCH_MM && latch_live;
+
+    if (measured_near || inferred_near) {
         v = TOF_TOO_CLOSE_MM;          /* a real number to steer away from */
         p.too_close = true;
-        p.last_good = v;
-        p.has_good  = true;
     } else {
         p.too_close = false;
-        if (v < TOF_MAX_RANGE_MM) { p.last_good = v; p.has_good = true; }
     }
 
     /* Plausibility gate: a wall cannot appear to jump further than the robot
@@ -624,7 +686,7 @@ void tofPoll(int id) {
 
     if (id == S_FRONT) {
         uint8_t blocked = p.too_close ? 1
-                        : ((!jump && v < FRONT_BLOCKED_MM) ? 1 : 0);
+                        : ((!jump && v < cfg_front_blk) ? 1 : 0);
         front_votes[front_vi] = blocked;
         front_vi = (front_vi + 1) % FRONT_VOTE_WINDOW;
     }
@@ -650,10 +712,15 @@ bool tofValid(int id) {
 
 bool tofOpen(int id) {
     if (!st[id].present) return true;      /* unknown side: assume passable */
+    /* No data yet (just flushed, still warming up) is NOT evidence of an
+     * opening. tofClear() parks `latest` at TOF_MAX_RANGE_MM, so without this
+     * guard a freshly flushed sensor claims "open" and three flushed sensors
+     * look exactly like the maze exit. */
+    if (st[id].n == 0) return false;
     if (st[id].too_close) return false;    /* checked FIRST -- see above    */
     uint16_t v = tofLatest(id);
     if (v >= TOF_MAX_RANGE_MM) return true;
-    return v > OPENING_THRESHOLD_MM;
+    return v > cfg_opening;
 }
 
 bool tofTooClose(int id) { return st[id].present && st[id].too_close; }
@@ -780,10 +847,28 @@ void driveTick(void) {
     if (g_target_heading >  WALL_TILT_MAX_DEG) g_target_heading =  WALL_TILT_MAX_DEG;
     if (g_target_heading < -WALL_TILT_MAX_DEG) g_target_heading = -WALL_TILT_MAX_DEG;
 
-    /* Emergency override: a wall inside the too-close band needs a hard,
-     * ramped steer-away, not a 3-degree hint. */
-    if (tofTooClose(S_LEFT)  && !tofTooClose(S_RIGHT)) g_target_heading = -WALL_TILT_MAX_DEG * 2;
-    if (tofTooClose(S_RIGHT) && !tofTooClose(S_LEFT))  g_target_heading =  WALL_TILT_MAX_DEG * 2;
+    /* --- EMERGENCY: wall closer than the gentle heading bias can handle ----
+     * Fires on the sub-measurable "too close" flag OR on a valid reading
+     * inside cfg_wall_emerg. Checking only the former (as this did) meant no
+     * avoidance until the wall was under 40 mm -- by which point the chassis
+     * is already touching it.
+     *
+     * Severity RAMPS with proximity instead of stepping to full authority at
+     * the threshold: mahee's config.h records that a hard step measured 71
+     * deg/s of yaw and bounced the robot off one wall straight into the
+     * other. */
+    bool l_near = tofTooClose(S_LEFT)  || (l_ok && l_mm <= cfg_wall_emerg);
+    bool r_near = tofTooClose(S_RIGHT) || (r_ok && r_mm <= cfg_wall_emerg);
+
+    if (l_near != r_near) {                 /* pinned on exactly one side */
+        int  d   = l_near ? (tofTooClose(S_LEFT)  ? 0 : l_mm)
+                          : (tofTooClose(S_RIGHT) ? 0 : r_mm);
+        float sev = 1.0f - (float)d / (float)(cfg_wall_emerg > 0 ? cfg_wall_emerg : 1);
+        if (sev < 0.0f) sev = 0.0f;
+        if (sev > 1.0f) sev = 1.0f;
+        float away = WALL_TILT_MAX_DEG + WALL_EMERG_EXTRA_DEG * sev;
+        g_target_heading = l_near ? -away : away;   /* steer off that wall */
+    }
 
     /* --- PD ------------------------------------------------------------ */
     float drift = g_heading_deg - g_target_heading;   /* + = drifted left   */
@@ -1081,7 +1166,7 @@ void mazeTick(void) {
             enterState(ST_STOPPING);
             break;
         }
-        if (inStateFor((uint32_t)APPROACH_MM * 1000UL / TRAVEL_SPEED_MMS)) {
+        if (inStateFor(approachMs())) {
             driveStop();
             enterState(ST_STOPPING);
         }
@@ -1184,7 +1269,17 @@ void printMenu(void) {
     LOGf("  LT:%d     left trim %%       RT:%d  right trim %%", cfg_left_trim, cfg_right_trim);
     LOGf("  KP:%.2f  KD:%.2f  KW:%.4f   TM:%.1f pivot stop margin",
          cfg_kp, cfg_kd, cfg_kw, cfg_margin);
-    LOGf("  FD:%d     front stop mm     GS:%d  gyro sign", cfg_front_stop, cfg_gyro_sign);
+    LOGf("  FB:%d     wall-ahead mm     FD:%d  front stop mm", cfg_front_blk, cfg_front_stop);
+    LOGf("  OP:%d     side-open mm      WE:%d  wall emergency mm", cfg_opening, cfg_wall_emerg);
+    LOGf("  SP:%d     travel mm/s (approach %lu ms)  GS:%d  gyro sign",
+         cfg_speed, (unsigned long)approachMs(), cfg_gyro_sign);
+    /* The lift-both-wheels rule in driveTick() only pushes the OTHER wheel
+     * up. With little headroom between BL and MN it stops being steering and
+     * becomes acceleration -- which is how raising MN to 100 against BL 110
+     * turned into front-wall collisions. */
+    if (cfg_base_pwm - cfg_min_pwm < 40)
+        LOGf("  !! BL-MN is only %d. Steering will inflate speed instead of"
+             " turning. Aim for BL >= MN+40.", cfg_base_pwm - cfg_min_pwm);
     LOGf("  LOG:%d     telemetry stream on/off", cfg_log ? 1 : 0);
     LOG("  START | STOP | CAL | MENU");
     LOG("================================");
@@ -1283,6 +1378,10 @@ void handleCommand(String c) {
     else if (k == "LT")   cfg_left_trim  = (int)v;
     else if (k == "RT")   cfg_right_trim = (int)v;
     else if (k == "FD")   cfg_front_stop = (int)v;
+    else if (k == "FB")   cfg_front_blk  = (int)v;
+    else if (k == "OP")   cfg_opening    = (int)v;
+    else if (k == "WE")   cfg_wall_emerg = (int)v;
+    else if (k == "SP")   cfg_speed      = (int)v;
     else if (k == "KP")   cfg_kp         = v;
     else if (k == "KD")   cfg_kd         = v;
     else if (k == "KW")   cfg_kw         = v;

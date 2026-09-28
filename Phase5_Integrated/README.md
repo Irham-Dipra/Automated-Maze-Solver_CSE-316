@@ -317,6 +317,41 @@ Tune in this order, one at a time:
    error. Start at `0` (pure gyro), then raise gently. `0.020` tilts about
    2° for a 100 mm offset.
 
+### Step 3b — set the distance thresholds to match your speed
+
+These are the knobs that decide *what the robot believes*, as opposed to how
+it drives. They matter more than the PID gains.
+
+| Key | Meaning | Note |
+|---|---|---|
+| `FB` | distance at which a wall ahead is **believed** | this is the one that governs stopping distance |
+| `FD` | how close it coasts in APPROACH before pivoting | does **not** affect detection |
+| `OP` | distance beyond which a side counts as **open** | a junction is declared here |
+| `WE` | side wall distance that triggers a hard steer-away | |
+| `SP` | measured travel speed, mm/s | sets the APPROACH duration |
+
+**`FB` is the one people reach for `FD` to fix.** `FD` only controls the final
+coast; it cannot make the robot notice a wall sooner. If the robot is hitting
+the front wall, raise `FB`. The menu prints the resulting APPROACH time next to
+`SP` so you can sanity-check it.
+
+Rule of thumb: `FB` must exceed your stopping distance at the current `BL`.
+Time a stop from cruise, multiply by `SP`, add a margin.
+
+### Step 3c — keep BL well clear of MN
+
+`driveTick()` preserves the steering differential by lifting **both** wheels
+when one would fall under `MN`. That only ever pushes the other wheel *up*. If
+`MN` sits just under `BL` there is no downward headroom, so every correction
+becomes acceleration instead of steering — the robot gets faster and stops
+being able to slow down.
+
+Keep **`BL` >= `MN` + 40**. The menu prints a warning if it is not.
+
+If you find you need a high `MN` for the robot to steer at all, that means your
+true stall floor is high — so raise `BL` to match and buy back the stopping
+distance with `FB`, rather than trying to drive below the floor.
+
 ### Step 4 — measure the two placeholder constants
 
 These are estimates in the source and **must** be replaced:
@@ -356,7 +391,21 @@ if the side sensors are unreliable.
 
 ---
 
-## 5. Protocol reference
+## 5. Regression test (runs on a PC, no robot needed)
+
+```sh
+./test/run_tests.sh
+```
+
+Compiles the sketch against stub headers with a scripted fake VL53L0X and a
+controllable clock, then replays the failure from `bluetooth_logs` at 14:18:17:
+the robot stops 105 mm off a wall, pivots, and the front sensor must report the
+open corridor ahead rather than staying jammed at "wall touching me".
+
+Against the firmware as of `b8f00ac` this test reports `JAMMED FOREVER`. It
+passes now.
+
+## 6. Protocol reference
 
 ```
 ESP32 -> ATmega32,  9600 8N1,  5 bytes:
