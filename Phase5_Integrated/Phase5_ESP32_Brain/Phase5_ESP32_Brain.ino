@@ -136,8 +136,22 @@
  * All three are derived from CW/RW/AX below, so measuring the robot and the
  * maze is enough; there is nothing left to guess. */
 #define DEF_CORRIDOR_W_MM   400      /* wall face to wall face  [MEASURE]   */
-#define DEF_ROBOT_W_MM      160      /* widest point            [MEASURE]   */
-#define DEF_SENSOR_AXLE_MM  120      /* front sensor face -> axle [MEASURE] */
+#define DEF_ROBOT_W_MM      160      /* widest point of chassis [MEASURE]   */
+#define DEF_ROBOT_L_MM      230      /* nose to tail            [MEASURE]   */
+#define DEF_SENSOR_AXLE_MM  130      /* FRONT sensor face -> axle [MEASURE] */
+
+/* The side sensors are their own measurement, and assuming they sit at the
+ * widest point and level with the front sensor is wrong on most chassis.
+ *
+ *   SS  span between the LEFT and RIGHT sensor faces. Centring compares a
+ *       side reading against (CW - SS)/2, so using the chassis width here
+ *       instead biases the robot by however far the sensors are inset.
+ *   SA  how far the SIDE sensors sit ahead of the axle. A side OPENING is
+ *       spotted by a side sensor, so the approach travel is measured from
+ *       that sensor -- not from the front one, which is further forward. */
+#define DEF_SENSOR_SPAN_MM  105      /* left face to right face [MEASURE]   */
+#define DEF_SIDE_AXLE_MM     60      /* side sensors -> axle    [MEASURE]   */
+
 #define FRONT_STOP_FLOOR_MM  50      /* never park closer than this         */
 
 #define TOF_MAX_RANGE_MM   1200      /* beyond this we call it "open"       */
@@ -192,6 +206,14 @@
  * Speed is now ramped down from cfg_front_blk to the stop point, so the robot
  * arrives already crawling and the stop is repeatable. */
 #define JUNCTION_BRAKE_MS    90      /* active brake pulse when parking      */
+
+/* A TIMED approach (side opening, no wall ahead) is the one manoeuvre whose
+ * accuracy depends on knowing the speed. Rather than try to predict whatever
+ * speed the robot happened to build up -- which really is higher after a long
+ * straight than a short one -- it is forced down to a fixed crawl for the
+ * whole timed run. Then SP is one number, measured once at that crawl, and it
+ * does not matter how long the approach corridor was. */
+#define APPROACH_CRAWL      0.25f    /* fraction of the BL-MN span           */
 
 /* --- motors ----------------------------------------------------------- */
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
@@ -322,8 +344,11 @@ int   cfg_right_trim = DEF_RIGHT_TRIM;
 int   cfg_turn_pwm   = DEF_TURN_PWM;
 int   cfg_front_stop = DEF_FRONT_STOP_MM;      /* FD -- 0 means auto        */
 int   cfg_corridor_w = DEF_CORRIDOR_W_MM;      /* CW -- wall face to face   */
-int   cfg_robot_w    = DEF_ROBOT_W_MM;         /* RW -- chassis width       */
-int   cfg_axle       = DEF_SENSOR_AXLE_MM;     /* AX -- sensor face to axle */
+int   cfg_robot_w    = DEF_ROBOT_W_MM;         /* RW -- widest chassis      */
+int   cfg_robot_l    = DEF_ROBOT_L_MM;         /* RL -- nose to tail        */
+int   cfg_axle       = DEF_SENSOR_AXLE_MM;     /* AX -- front sensor->axle  */
+int   cfg_span       = DEF_SENSOR_SPAN_MM;     /* SS -- side sensor span    */
+int   cfg_side_axle  = DEF_SIDE_AXLE_MM;       /* SA -- side sensor->axle   */
 int   cfg_front_blk  = DEF_FRONT_BLOCKED_MM;   /* FB -- "wall ahead" belief  */
 int   cfg_opening    = DEF_OPENING_MM;         /* OP -- "side is open"       */
 int   cfg_wall_emerg = DEF_WALL_EMERG_MM;      /* WE -- hard steer-away      */
@@ -372,15 +397,31 @@ void serviceWhileBusy(void);
  * out of agreement with one another. */
 
 /* What a SIDE sensor reads with the robot centred -- the centring reference.
- * Note this is NOT half the corridor: it is smaller by half the chassis. */
+ * Built from the SENSOR SPAN, not the chassis width: sensors inset from the
+ * widest point read further than the chassis gap, and using the chassis width
+ * here makes a centred robot look off-centre by exactly that inset. */
 int wallRefMm(void) {
-    int v = (cfg_corridor_w - cfg_robot_w) / 2;
+    int v = (cfg_corridor_w - cfg_span) / 2;
     return (v < 10) ? 10 : v;
 }
 
 /* How far the AXLE must travel past a side opening's near edge to sit on its
- * centreline. Used only when there is no front wall to range off. */
-int approachMm(void) { return cfg_axle + cfg_corridor_w / 2; }
+ * centreline. Measured from the SIDE sensor, because a side sensor is what
+ * spots the opening -- using the front sensor's offset overshoots by the gap
+ * between them. Used only when there is no front wall to range off. */
+int approachMm(void) { return cfg_side_axle + cfg_corridor_w / 2; }
+
+/* Radius of the circle the furthest chassis corner sweeps while pivoting.
+ * Checked against the half-corridor so an impossible geometry is reported at
+ * the menu instead of discovered by watching the robot grind into a corner. */
+float sweptRadiusMm(void) {
+    float hw = cfg_robot_w / 2.0f;
+    float front = sqrtf((float)cfg_axle * cfg_axle + hw * hw);
+    int   tail  = cfg_robot_l - cfg_axle;
+    if (tail < 0) tail = 0;
+    float rear  = sqrtf((float)tail * tail + hw * hw);
+    return (front > rear) ? front : rear;
+}
 
 /* Where the FRONT sensor should read when the axle is on the perpendicular
  * corridor's centreline -- exactly where to park before a forced turn.
@@ -1263,7 +1304,9 @@ void mazeTick(void) {
             if (sc > 1.0f) sc = 1.0f;
             g_speed_scale = sc;
         } else {
-            g_speed_scale = 1.0f;
+            /* No wall to range off: crawl, so the timed distance is governed
+             * by a speed we imposed rather than one we have to guess. */
+            g_speed_scale = APPROACH_CRAWL;
         }
 
         driveTick();
@@ -1379,10 +1422,25 @@ void printMenu(void) {
     LOGf("  LT:%d     left trim %%       RT:%d  right trim %%", cfg_left_trim, cfg_right_trim);
     LOGf("  KP:%.2f  KD:%.2f  KW:%.4f   TM:%.1f pivot stop margin",
          cfg_kp, cfg_kd, cfg_kw, cfg_margin);
-    LOGf("  CW:%d     corridor mm       RW:%d  robot width mm", cfg_corridor_w, cfg_robot_w);
-    LOGf("  AX:%d     sensor->axle mm", cfg_axle);
+    LOGf("  CW:%d     corridor mm       RW:%d  widest mm   RL:%d  length mm",
+         cfg_corridor_w, cfg_robot_w, cfg_robot_l);
+    LOGf("  AX:%d     front sensor->axle  SA:%d  side sensor->axle",
+         cfg_axle, cfg_side_axle);
+    LOGf("  SS:%d     side sensor span mm", cfg_span);
     LOGf("  -> derived: centre-ref %d mm | park at %d mm | approach %d mm",
          wallRefMm(), frontStopMm(), approachMm());
+    {
+        float r = sweptRadiusMm();
+        int half = cfg_corridor_w / 2;
+        LOGf("  -> pivot sweeps %d mm radius, half-corridor %d mm, %d mm spare",
+             (int)r, half, (int)(half - r));
+        if (r >= half)
+            LOG("  !! the chassis CANNOT pivot in this corridor -- it will hit a wall");
+        else if (half - r < 25)
+            LOG("  !! under 25 mm of pivot clearance -- expect corner contact");
+    }
+    LOGf("  timed approach crawls at PWM %d -- measure SP at THAT speed",
+         cfg_min_pwm + (int)((cfg_base_pwm - cfg_min_pwm) * APPROACH_CRAWL));
     LOGf("  FB:%d     wall-ahead mm     FD:%d  front stop (0=auto=%d)",
          cfg_front_blk, cfg_front_stop, frontStopMm());
     LOGf("  OP:%d     side-open mm      WE:%d  wall emergency mm", cfg_opening, cfg_wall_emerg);
@@ -1500,6 +1558,9 @@ void handleCommand(String c) {
     else if (k == "CW")   cfg_corridor_w = (int)v;
     else if (k == "RW")   cfg_robot_w    = (int)v;
     else if (k == "AX")   cfg_axle       = (int)v;
+    else if (k == "RL")   cfg_robot_l    = (int)v;
+    else if (k == "SS")   cfg_span       = (int)v;
+    else if (k == "SA")   cfg_side_axle  = (int)v;
     else if (k == "KP")   cfg_kp         = v;
     else if (k == "KD")   cfg_kd         = v;
     else if (k == "KW")   cfg_kw         = v;
