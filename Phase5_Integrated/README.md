@@ -391,7 +391,79 @@ if the side sensors are unreliable.
 
 ---
 
-## 5. Regression test (runs on a PC, no robot needed)
+## 5. Parameter reference
+
+### What the telemetry line means
+
+```
+M3 DRIVING  F:412  L:180  R:175  fv:2 | Hdg: -2.1 Tgt: +0.5 Rate: -8.3 Corr: -11 | L:100 R:152
+```
+
+| Field | Meaning |
+|---|---|
+| `M3` | active mode |
+| `DRIVING` | maze state machine state |
+| `F/L/R` | median distance in mm. `oo` nothing in range, `<<` too close to measure, `--` sensor never initialised |
+| `fv` | front votes, 0–5. A wall is believed at 2 |
+| `Hdg` | heading since this leg started, degrees. **+ = rotated left** |
+| `Tgt` | heading the controller is aiming for, set by wall centring. + = aim left |
+| `Rate` | yaw rate, deg/s |
+| `Corr` | final clamped correction. **+ = steer right** |
+| `L:` `R:` | PWM actually sent to each wheel, after trim |
+
+### The exact control law
+
+Everything `driveTick()` does, in order:
+
+```
+wall_err = r_mm - l_mm                        (both walls seen)
+         = (CORRIDOR_HALF_MM - l_mm) * 2      (left wall only)
+Tgt      = clamp(-KW * wall_err, ±8°)         WALL_TILT_MAX_DEG
+
+  if one side closer than WE:
+      sev = 1 - distance/WE                   0 at threshold, 1 at contact
+      Tgt = ±(8° + 12° * sev)                 ramped, away from that wall
+
+drift    = Hdg - Tgt
+Corr     = clamp(KP*drift + KD*Rate, ±BL*40%) CORR_RATIO_PCT
+           (forced to 0 if already yawing >60°/s the same way)
+
+L = BL + Corr
+R = BL - Corr
+  if L < MN:  R += (MN - L);  L = MN          lift BOTH, keep the differential
+  if R < MN:  L += (MN - R);  R = MN
+L = L * LT/100      R = R * RT/100            per-motor trim, applied last
+clamp both to MX
+```
+
+### Every tunable key
+
+| Key | Unit | Default | What it is |
+|---|---|---|---|
+| `MODE` | 0–3 | 3 | 0 sensors, 1 straight, 2 turn test, 3 maze |
+| `BL` | PWM | 110 | base speed both wheels before steering |
+| `MN` | PWM | 60 | **running** stall floor — below this the wheels buzz but don't turn |
+| `MX` | PWM | 230 | hard ceiling after trim |
+| `LT` `RT` | % | 100 | per-motor trim, compensates mismatched motors |
+| `TP` | PWM | 150 | pivot speed during the slow sweep |
+| `TM` | deg | 8.0 | how early the pivot sweep stops, to leave room for the coast |
+| `KP` | PWM/deg | 4.0 | how hard to correct per degree off heading |
+| `KD` | PWM/(deg/s) | 0.25 | damping against the current yaw rate |
+| `KW` | deg/mm | 0.020 | how many degrees to tilt the heading target per mm off centre |
+| `FB` | mm | 300 | distance at which a wall ahead is **believed** |
+| `FD` | mm | 120 | how close it parks before pivoting |
+| `OP` | mm | 280 | beyond this a side counts as **open** — declares a junction |
+| `WE` | mm | 90 | side wall distance that triggers the ramped steer-away |
+| `SP` | mm/s | 200 | measured travel speed; sets the APPROACH duration |
+| `GS` | ±1 | 1 | gyro sign — turning left must make `Hdg` go **positive** |
+| `LOG` | 0/1 | 1 | telemetry stream on/off |
+
+Compile-time values you may eventually need to edit in the sketch:
+`CORRIDOR_WIDTH_MM` (360), `SENSOR_TO_AXLE_MM` (120), `WALL_TILT_MAX_DEG` (8),
+`CORR_RATIO_PCT` (40), `YAW_GOVERNOR_DPS` (60), `GYRO_LSB_PER_DPS` (65.5),
+`OPENING_CONFIRM` (2), `FRONT_VOTE_THRESHOLD` (2 of 5), `TOF_LATCH_MS` (400).
+
+## 6. Regression test (runs on a PC, no robot needed)
 
 ```sh
 ./test/run_tests.sh
@@ -405,7 +477,7 @@ open corridor ahead rather than staying jammed at "wall touching me".
 Against the firmware as of `b8f00ac` this test reports `JAMMED FOREVER`. It
 passes now.
 
-## 6. Protocol reference
+## 7. Protocol reference
 
 ```
 ESP32 -> ATmega32,  9600 8N1,  5 bytes:
