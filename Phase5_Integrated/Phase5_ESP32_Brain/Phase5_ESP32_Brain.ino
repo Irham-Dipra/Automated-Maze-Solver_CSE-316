@@ -241,6 +241,31 @@
 #define LOOK_SETTLE_MS       250
 #define LOOK_TIMEOUT_MS      900
 
+/* --- CREEP TO THE PARK POINT ------------------------------------------
+ * Braking distance and parking accuracy are two different problems and were
+ * being solved with one number. FB has to be generous, or a robot arriving
+ * down a long straight at full speed cannot shed its momentum before the
+ * wall. But the same generous FB makes a robot that is already crawling --
+ * one that has just finished a pivot a few hundred mm from an obstacle --
+ * begin its ramp immediately and coast to a halt far short of the junction.
+ * It then pivots from too far back and clips the corner.
+ *
+ * So: stop wherever the braking happens to end, then close the remaining gap
+ * in short measured pulses until the front sensor reads the park distance.
+ * FB can stay as large as the fast case needs, because it no longer has any
+ * say in where the robot finally sits. Pulse length scales with the error,
+ * exactly like the turn nudges, and the gap is re-measured after every pulse.
+ * It reverses too, which recovers the case where it arrived touching. */
+#define CREEP_TOL_MM          15     /* close enough; stop nudging           */
+#define CREEP_MAX_PULSES       6
+#define CREEP_TIMEOUT_MS    4000
+#define CREEP_MS_PER_MM      1.6f    /* bias short: an extra pulse is cheap  */
+#define CREEP_MS_MIN          60
+#define CREEP_MS_MAX         260
+#define CREEP_BRAKE_MS        70
+#define CREEP_SETTLE_MS      160     /* let it stop before re-measuring      */
+#define DEF_CREEP_PWM        165     /* must break static friction from rest */
+
 /* --- motors ----------------------------------------------------------- */
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
  * Your two motors are badly mismatched, so LT/RT trim each side
@@ -357,12 +382,12 @@ struct TurnResult {
 
 enum MazeState {
     ST_IDLE, ST_STARTUP, ST_DRIVING, ST_APPROACHING, ST_CONFIRM_EXIT,
-    ST_STOPPING, ST_RECALIBRATING, ST_LOOKING, ST_DECIDING, ST_RECOVERING,
-    ST_FINISHED
+    ST_STOPPING, ST_CREEPING, ST_RECALIBRATING, ST_LOOKING, ST_DECIDING,
+    ST_RECOVERING, ST_FINISHED
 };
 const char *ST_NAME[] = { "IDLE","STARTUP","DRIVING","APPROACH","CONFIRM_EXIT",
-                          "STOPPING","RECAL","LOOKING","DECIDING","RECOVER",
-                          "FINISHED" };
+                          "STOPPING","CREEPING","RECAL","LOOKING","DECIDING",
+                          "RECOVER","FINISHED" };
 
 enum Junction { J_CORRIDOR, J_DEAD_END, J_ALL_OPEN, J_FWD_OR_LEFT,
                 J_FWD_OR_RIGHT, J_LEFT_OR_RIGHT, J_FORCED_LEFT, J_FORCED_RIGHT };
@@ -387,6 +412,7 @@ int   cfg_front_blk  = DEF_FRONT_BLOCKED_MM;   /* FB -- "wall ahead" belief  */
 int   cfg_opening    = DEF_OPENING_MM;         /* OP -- "side is open"       */
 int   cfg_wall_emerg = DEF_WALL_EMERG_MM;      /* WE -- hard steer-away      */
 int   cfg_speed      = TRAVEL_SPEED_MMS;       /* SP -- measured mm/s        */
+int   cfg_creep_pwm  = DEF_CREEP_PWM;          /* CP -- park-nudge power     */
 float cfg_kp         = DEF_KP;
 float cfg_kd         = DEF_KD;
 float cfg_kw         = DEF_KW;
@@ -640,7 +666,15 @@ static bool calibrateOnce(int samples) {
 }
 
 bool gyroCalibrate(int samples, const char *what) {
-    motorStop();
+    /* HOLD the brake rather than coasting. Releasing lets each wheel free-
+     * wheel at its own rate, and the two are not equal -- RT:120 exists
+     * precisely because the right motor has more drag. The left therefore
+     * rolls a little further and the chassis yaws right just as we try to
+     * measure "stationary", which is a good part of why this used to reject
+     * three times at every junction. A shorted-motor brake at full duty is a
+     * static output with no switching and, once stopped, no current: it is
+     * quieter than coasting, not noisier. */
+    motorBrake();
     delay(GYRO_SETTLE_MS);
     for (int t = 0; t < GYRO_CAL_RETRIES; t++) {
         if (g_abort) { LOG("calibration aborted"); return false; }
@@ -692,6 +726,23 @@ void i2cBusRecover(void) {
     digitalWrite(PIN_SDA, LOW);  delayMicroseconds(5);
     digitalWrite(PIN_SCL, HIGH); delayMicroseconds(5);
     digitalWrite(PIN_SDA, HIGH); delayMicroseconds(5);   /* STOP */
+
+    /* Both lines should now be pulled high. If one is still low the bus is
+     * physically held down and no amount of retrying will help -- which is
+     * worth SAYING, because "all three sensors failed" otherwise looks
+     * identical to "nothing is powered". SDA stuck low is usually a device
+     * (often the MPU6050, which XSHUT cannot reset) caught mid-byte by a
+     * reset. SCL stuck low, or both, is normally wiring or a dead rail. */
+    pinMode(PIN_SDA, INPUT_PULLUP);
+    pinMode(PIN_SCL, INPUT_PULLUP);
+    delayMicroseconds(50);
+    {
+        int sda = digitalRead(PIN_SDA), scl = digitalRead(PIN_SCL);
+        if (!sda || !scl)
+            LOGf("  I2C BUS STUCK: SDA=%s SCL=%s -- a device is holding the "
+                 "bus down, or the 3.3 V rail is not up",
+                 sda ? "high" : "LOW", scl ? "high" : "LOW");
+    }
 
     Wire.begin(PIN_SDA, PIN_SCL);
     Wire.setClock(100000);     /* 100 kHz tolerates long noisy wiring far
@@ -758,6 +809,34 @@ void tofInitAll(void) {
         st[i].present = tofInitOne(i);
         delay(50);
     }
+
+    /* Every single sensor failing is a different fault from one failing: it
+     * points at the shared resources -- the 3.3 V rail or the bus -- not at
+     * any one module. Those are exactly the faults a bus recovery sometimes
+     * clears, so it is worth a second full attempt before giving up. */
+    if (!st[S_FRONT].present && !st[S_LEFT].present && !st[S_RIGHT].present) {
+        LOG("  ALL sensors failed -- shared fault (rail or bus). Retrying...");
+        i2cBusRecover();
+        delay(200);
+        for (int i = 0; i < S_COUNT; i++) {
+            digitalWrite(XSHUT[i], LOW);
+        }
+        delay(100);
+        for (int i = 0; i < S_COUNT; i++) {
+            digitalWrite(XSHUT[i], HIGH);
+            delay(120);
+            st[i].present = tofInitOne(i);
+            delay(50);
+        }
+    }
+
+    LOGf("sensors: FRONT %s  LEFT %s  RIGHT %s",
+         st[S_FRONT].present ? "ok" : "MISSING",
+         st[S_LEFT].present  ? "ok" : "MISSING",
+         st[S_RIGHT].present ? "ok" : "MISSING");
+    if (!st[S_FRONT].present)
+        LOG("  no FRONT sensor: MODE 3 will refuse to start. Send RESCAN to "
+            "retry without rebooting.");
 }
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
@@ -1244,6 +1323,11 @@ int      s_blocked_side  = -1;      /* S_LEFT / S_RIGHT, or -1 for none     */
 uint32_t s_block_expires = 0;       /* backstop, in case no wall ever shows */
 uint8_t  s_block_wall_hits = 0;     /* consecutive valid wall readings      */
 
+/* creep-to-park cycle state */
+uint8_t  s_creep_pulses = 0;
+bool     s_creep_driving = false;
+uint32_t s_creep_until = 0;
+
 #define BLOCK_WALL_CONFIRM  2       /* wall sightings needed to release     */
 bool      pend_right = true;
 bool      pend_180 = false;
@@ -1255,6 +1339,11 @@ void enterState(MazeState s) {
     g_state = s;
     g_state_t0 = millis();
     g_recover_begun = false;
+    if (s == ST_CREEPING) {
+        s_creep_pulses  = 0;
+        s_creep_driving = false;
+        s_creep_until   = 0;
+    }
 }
 bool inStateFor(uint32_t ms) { return millis() - g_state_t0 >= ms; }
 
@@ -1433,7 +1522,8 @@ void mazeTick(void) {
 
         if (have_wall) {
             if (f_mm <= stop_mm) {
-                LOGf("parked %d mm off the wall (target %d)", f_mm, stop_mm);
+                LOGf("braked at %d mm (target %d) -- creeping to close the gap",
+                     f_mm, stop_mm);
                 driveStopHard();
                 enterState(ST_STOPPING);
                 break;
@@ -1486,13 +1576,69 @@ void mazeTick(void) {
         break;
 
     case ST_STOPPING:
-        /* Hold the brake briefly, then release so the chassis settles before
-         * the gyro bias is sampled. Braking through the whole settle would
-         * keep the motors energised while we try to measure "stationary". */
-        if (!inStateFor(JUNCTION_BRAKE_MS)) motorBrake();
-        else                                motorStop();
-        if (inStateFor(GYRO_SETTLE_MS)) enterState(ST_RECALIBRATING);
+        /* Hold the brake for the whole settle. It used to release after 90 ms
+         * and coast, which is what produced the little yaw to the right every
+         * time the robot stopped. */
+        motorBrake();
+        if (inStateFor(GYRO_SETTLE_MS)) enterState(ST_CREEPING);
         break;
+
+    /* ------------------------------------------------------------------
+     * CREEP: close the last few centimetres under measurement.
+     * Runs as a small cycle -- pulse, brake, settle, re-measure -- driven by
+     * the state timer so the control loop, telemetry and STOP all keep
+     * working underneath it.
+     * ------------------------------------------------------------------ */
+    case ST_CREEPING: {
+        int target = frontStopMm();
+
+        /* No usable front reading: nothing to close the loop on, so accept
+         * wherever the braking left us rather than nudging blind. */
+        if (!tofValid(S_FRONT)) {
+            if (s_creep_pulses == 0) LOG("creep skipped: no front reading");
+            motorBrake();
+            enterState(ST_RECALIBRATING);
+            break;
+        }
+
+        int err = (int)tofLatest(S_FRONT) - target;   /* + = still too far */
+
+        /* Mid-pulse or mid-settle: leave the motors alone until it expires. */
+        if ((int32_t)(millis() - s_creep_until) < 0) break;
+
+        if (s_creep_driving) {            /* pulse just ended -> brake+settle */
+            motorBrake();
+            s_creep_driving = false;
+            s_creep_until   = millis() + CREEP_BRAKE_MS + CREEP_SETTLE_MS;
+            break;
+        }
+
+        if (abs(err) <= CREEP_TOL_MM ||
+            s_creep_pulses >= CREEP_MAX_PULSES ||
+            (millis() - g_state_t0) > CREEP_TIMEOUT_MS) {
+            motorBrake();
+            LOGf("parked %d mm off the wall (target %d) after %d nudge%s",
+                 (int)tofLatest(S_FRONT), target, s_creep_pulses,
+                 s_creep_pulses == 1 ? "" : "s");
+            enterState(ST_RECALIBRATING);
+            break;
+        }
+
+        {
+            int ms = (int)(abs(err) * CREEP_MS_PER_MM);
+            if (ms < CREEP_MS_MIN) ms = CREEP_MS_MIN;
+            if (ms > CREEP_MS_MAX) ms = CREEP_MS_MAX;
+            int l = (cfg_creep_pwm * cfg_left_trim)  / 100;
+            int r = (cfg_creep_pwm * cfg_right_trim) / 100;
+            if (l > cfg_max_pwm) l = cfg_max_pwm;
+            if (r > cfg_max_pwm) r = cfg_max_pwm;
+            motorSend(err > 0 ? 'F' : 'B', l, r);
+            s_creep_driving = true;
+            s_creep_until   = millis() + ms;
+            s_creep_pulses++;
+        }
+        break;
+    }
 
     case ST_RECALIBRATING:
         gyroCalibrate(GYRO_CAL_QUICK, "recal");
@@ -1518,7 +1664,7 @@ void mazeTick(void) {
      * reaches this state.
      * ------------------------------------------------------------------ */
     case ST_LOOKING: {
-        motorStop();
+        motorBrake();          /* stay held; do not coast out of position */
 
         /* Let the flushed filters refill before believing anything. */
         bool ready = tofValid(S_LEFT) || tofOpen(S_LEFT);
@@ -1648,6 +1794,7 @@ void printMenu(void) {
          cfg_opening, cfg_wall_emerg, wallEmergMm());
     LOGf("  SP:%d     travel mm/s (approach %lu ms)  GS:%d  gyro sign",
          cfg_speed, (unsigned long)approachMs(), cfg_gyro_sign);
+    LOGf("  CP:%d     creep PWM for the final park nudges", cfg_creep_pwm);
     /* The lift-both-wheels rule in driveTick() only pushes the OTHER wheel
      * up. With little headroom between BL and MN it stops being steering and
      * becomes acceleration -- which is how raising MN to 100 against BL 110
@@ -1656,7 +1803,7 @@ void printMenu(void) {
         LOGf("  !! BL-MN is only %d. Steering will inflate speed instead of"
              " turning. Aim for BL >= MN+40.", cfg_base_pwm - cfg_min_pwm);
     LOGf("  LOG:%d     telemetry stream on/off", cfg_log ? 1 : 0);
-    LOG("  START | STOP | CAL | MENU");
+    LOG("  START | STOP | CAL | MENU | RESCAN");
     LOG("================================");
 }
 
@@ -1725,6 +1872,23 @@ void handleCommand(String c) {
 
     if (c == "MENU")  { printMenu(); return; }
 
+    /* Sensor init used to happen only inside setup(), so a bad boot scan was
+     * unrecoverable: the ESP32 sat there for the rest of its life with every
+     * sensor marked absent and no command could make it try again. */
+    if (c == "RESCAN") {
+        if (g_running) { LOG("send STOP before rescanning"); return; }
+        LOG("re-running I2C recovery and sensor init...");
+        i2cBusRecover();
+        tofInitAll();
+        if (!mpu_ok) {
+            mpu_ok = mpuInit();
+            LOG(mpu_ok ? "  [OK]   MPU6050 came back" : "  [FAIL] MPU6050 still absent");
+        }
+        tofFlush();
+        g_quiet_until = millis() + MENU_QUIET_MS;
+        return;
+    }
+
     if (c == "CAL") {
         if (g_running) { LOG("send STOP before calibrating"); return; }
         g_abort = false;
@@ -1770,6 +1934,7 @@ void handleCommand(String c) {
     else if (k == "OP")   cfg_opening    = (int)v;
     else if (k == "WE")   cfg_wall_emerg = (int)v;
     else if (k == "SP")   cfg_speed      = (int)v;
+    else if (k == "CP")   cfg_creep_pwm  = (int)v;
     else if (k == "CW")   cfg_corridor_w = (int)v;
     else if (k == "RW")   cfg_robot_w    = (int)v;
     else if (k == "AX")   cfg_axle       = (int)v;

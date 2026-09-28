@@ -6,6 +6,7 @@ unsigned long g_fake_millis=0;
 unsigned long millis(){return g_fake_millis;}
 void delay(unsigned long ms){g_fake_millis+=ms;}
 void delayMicroseconds(unsigned){} void pinMode(uint8_t,uint8_t){} void digitalWrite(uint8_t,uint8_t){}
+int digitalRead(uint8_t){return 1;}
 esp_reset_reason_t esp_reset_reason(){return ESP_RST_POWERON;}
 std::deque<uint16_t> g_script[3]; int g_script_idx=0;
 #define setup sketch_setup

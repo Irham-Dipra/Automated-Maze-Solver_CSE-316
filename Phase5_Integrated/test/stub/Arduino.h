@@ -38,7 +38,7 @@ public: void begin(unsigned long){} void begin(unsigned long,int,int,int){}
 };
 extern SerialC Serial, Serial2;
 unsigned long millis(); void delay(unsigned long); void delayMicroseconds(unsigned);
-void pinMode(uint8_t,uint8_t); void digitalWrite(uint8_t,uint8_t);
+void pinMode(uint8_t,uint8_t); void digitalWrite(uint8_t,uint8_t); int digitalRead(uint8_t);
 class TwoWire { public:
   void begin(int,int){} void begin(){} void end(){} void setClock(uint32_t){}
   void beginTransmission(uint8_t){} void write(uint8_t){}
