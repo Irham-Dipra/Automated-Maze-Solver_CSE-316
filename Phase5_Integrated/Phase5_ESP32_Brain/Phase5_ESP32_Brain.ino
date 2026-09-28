@@ -118,9 +118,27 @@
 #define TOF_PERIOD_MS        30      /* continuous-ranging period per sensor*/
 #define TELEMETRY_MS        150
 
-/* --- maze geometry, in MILLIMETRES (VL53L0X native unit) -------------- */
-#define CORRIDOR_WIDTH_MM   360      /* your ~360 mm book-wall hallway      */
-#define CORRIDOR_HALF_MM    (CORRIDOR_WIDTH_MM / 2)
+/* --- maze geometry, in MILLIMETRES (VL53L0X native unit) --------------
+ *
+ * Three DIFFERENT lengths used to be conflated into one CORRIDOR_HALF_MM,
+ * which is why the stop distance could never be made to work:
+ *
+ *   CW/2                  half the corridor, wall face to wall face. This is
+ *                         where the AXLE must sit to pivot into a side
+ *                         opening and come out centred.
+ *   (CW - RW)/2           what a SIDE sensor reads when the robot is centred.
+ *                         Smaller than CW/2 by half the chassis width, and it
+ *                         is the correct reference for wall centring.
+ *   CW/2 - AX             what the FRONT sensor reads when the axle is on
+ *                         that centreline. This is the correct place to stop
+ *                         before a forced turn -- and nothing else is.
+ *
+ * All three are derived from CW/RW/AX below, so measuring the robot and the
+ * maze is enough; there is nothing left to guess. */
+#define DEF_CORRIDOR_W_MM   400      /* wall face to wall face  [MEASURE]   */
+#define DEF_ROBOT_W_MM      160      /* widest point            [MEASURE]   */
+#define DEF_SENSOR_AXLE_MM  120      /* front sensor face -> axle [MEASURE] */
+#define FRONT_STOP_FLOOR_MM  50      /* never park closer than this         */
 
 #define TOF_MAX_RANGE_MM   1200      /* beyond this we call it "open"       */
 #define TOF_TOO_CLOSE_MM     40      /* below this the sensor is unreliable */
@@ -141,9 +159,11 @@
  * APPROACH before pivoting. Tuning FRONT_STOP can never fix late detection --
  * that is what FB is for, and it is why 220 mm was not enough stopping
  * distance once the chassis was running fast. */
-#define DEF_OPENING_MM        (CORRIDOR_HALF_MM + 100)   /* 280 mm */
+#define DEF_OPENING_MM        280    /* side reads beyond this => opening   */
 #define DEF_FRONT_BLOCKED_MM  300
-#define FRONT_STOP_MM         120    /* stop this far off a wall before pivot */
+/* FD:0 means "derive it from the geometry", which is almost always right.
+ * A non-zero FD overrides it, for when the chassis needs extra clearance. */
+#define DEF_FRONT_STOP_MM       0
 
 /* Side wall closer than this gets an active, ramped steer-away. Previously
  * avoidance only fired on the sub-measurable "too close" flag (40 mm), i.e.
@@ -160,11 +180,18 @@
 
 /* --- approach offset -------------------------------------------------- */
 /* The ToF sees an opening when the SENSOR is level with it, but the robot
- * pivots about the axle, further back. Drive on by this much so the pivot
- * centre -- not the nose -- ends up in the middle of the opening. */
-#define SENSOR_TO_AXLE_MM   120      /* [MEASURE ON YOUR CHASSIS]          */
+ * pivots about the axle, further back. Drive on by AX + CW/2 so the pivot
+ * centre -- not the nose -- ends up in the middle of the opening. Only used
+ * when there is NO front wall to range off; with a wall ahead the stop is
+ * closed-loop on distance instead, which needs no speed calibration. */
 #define TRAVEL_SPEED_MMS    200      /* [MEASURE] mm/s at BASE_PWM          */
-#define APPROACH_MM         (SENSOR_TO_AXLE_MM + CORRIDOR_HALF_MM)
+
+/* Deceleration ramp into a junction. Approaching at full speed and then
+ * cutting power means the stop distance is FD + coast, and coast grows with
+ * speed -- which is why one FD was too close at speed and too far when slow.
+ * Speed is now ramped down from cfg_front_blk to the stop point, so the robot
+ * arrives already crawling and the stop is repeatable. */
+#define JUNCTION_BRAKE_MS    90      /* active brake pulse when parking      */
 
 /* --- motors ----------------------------------------------------------- */
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
@@ -293,7 +320,10 @@ int   cfg_max_pwm    = DEF_MAX_PWM;
 int   cfg_left_trim  = DEF_LEFT_TRIM;
 int   cfg_right_trim = DEF_RIGHT_TRIM;
 int   cfg_turn_pwm   = DEF_TURN_PWM;
-int   cfg_front_stop = FRONT_STOP_MM;
+int   cfg_front_stop = DEF_FRONT_STOP_MM;      /* FD -- 0 means auto        */
+int   cfg_corridor_w = DEF_CORRIDOR_W_MM;      /* CW -- wall face to face   */
+int   cfg_robot_w    = DEF_ROBOT_W_MM;         /* RW -- chassis width       */
+int   cfg_axle       = DEF_SENSOR_AXLE_MM;     /* AX -- sensor face to axle */
 int   cfg_front_blk  = DEF_FRONT_BLOCKED_MM;   /* FB -- "wall ahead" belief  */
 int   cfg_opening    = DEF_OPENING_MM;         /* OP -- "side is open"       */
 int   cfg_wall_emerg = DEF_WALL_EMERG_MM;      /* WE -- hard steer-away      */
@@ -336,12 +366,36 @@ void driveStop(void);
  * failsafe fed AND keeps STOP responsive. */
 void serviceWhileBusy(void);
 
-/* How long to keep driving after spotting an opening, so the AXLE rather than
- * the nose ends up in the middle of it. Depends on the measured travel speed,
- * so it is computed rather than a compile-time constant. */
+/* ---- derived geometry ---------------------------------------------------
+ * Measure CW, RW and AX and these three fall out. They are the only lengths
+ * the navigation actually needs, and deriving them means they cannot drift
+ * out of agreement with one another. */
+
+/* What a SIDE sensor reads with the robot centred -- the centring reference.
+ * Note this is NOT half the corridor: it is smaller by half the chassis. */
+int wallRefMm(void) {
+    int v = (cfg_corridor_w - cfg_robot_w) / 2;
+    return (v < 10) ? 10 : v;
+}
+
+/* How far the AXLE must travel past a side opening's near edge to sit on its
+ * centreline. Used only when there is no front wall to range off. */
+int approachMm(void) { return cfg_axle + cfg_corridor_w / 2; }
+
+/* Where the FRONT sensor should read when the axle is on the perpendicular
+ * corridor's centreline -- exactly where to park before a forced turn.
+ * Stopping further back than this leaves the axle short of the opening, so
+ * the pivot swings the chassis into the corner instead of into the corridor. */
+int frontStopMm(void) {
+    if (cfg_front_stop > 0) return cfg_front_stop;      /* manual override */
+    int v = cfg_corridor_w / 2 - cfg_axle;
+    return (v < FRONT_STOP_FLOOR_MM) ? FRONT_STOP_FLOOR_MM : v;
+}
+
+/* Time-based fallback for a junction with no wall ahead to measure against. */
 uint32_t approachMs(void) {
     int sp = (cfg_speed > 10) ? cfg_speed : 10;
-    return (uint32_t)APPROACH_MM * 1000UL / (uint32_t)sp;
+    return (uint32_t)approachMm() * 1000UL / (uint32_t)sp;
 }
 
 /* ==========================================================================
@@ -753,6 +807,11 @@ bool frontBlocked(void) {
  * ======================================================================== */
 float g_target_heading = 0;
 int   g_pwm_l = 0, g_pwm_r = 0;
+/* 1.0 = full BL. Ramped down while closing on a junction so the robot
+ * arrives already crawling; at 0 the base falls to MN, the slowest speed the
+ * wheels still turn at. This is what makes the stop repeatable instead of
+ * "FD plus however far it coasted at whatever speed it happened to be". */
+float g_speed_scale = 1.0f;
 float g_last_corr = 0;
 
 /* stall watchdog */
@@ -762,6 +821,7 @@ uint16_t g_stall_front0 = 0;
 bool     g_stalled = false;
 
 void driveBegin(void) {
+    g_speed_scale = 1.0f;
     headingReset();
     g_target_heading = 0;
     g_last_corr = 0;
@@ -776,8 +836,20 @@ void driveBegin(void) {
     if (g_abort) motorStop();
 }
 
+/* Park at a junction: brake rather than coast. The ATmega has supported the
+ * 'K' active-brake command all along (both H-bridge inputs high, shorting the
+ * motor terminals so back-EMF stops the rotor) but nothing ever sent it, so
+ * every stop was a coast of speed-dependent length. */
+void driveStopHard(void) {
+    motorBrake();
+    g_pwm_l = g_pwm_r = 0;
+    g_last_corr = 0;
+    g_speed_scale = 1.0f;
+}
+
 void driveStop(void) {
     motorStop();
+    g_speed_scale = 1.0f;
     g_pwm_l = g_pwm_r = 0;
     g_last_corr = 0;
 }
@@ -839,8 +911,8 @@ void driveTick(void) {
     /* --- wall-centring, expressed as a heading TARGET ------------------- */
     float wall_err_mm = 0;
     if (l_ok && r_ok)        wall_err_mm = (float)(r_mm - l_mm);        /* width-independent */
-    else if (l_ok)           wall_err_mm = (float)(CORRIDOR_HALF_MM - l_mm) * 2.0f;
-    else if (r_ok)           wall_err_mm = (float)(r_mm - CORRIDOR_HALF_MM) * 2.0f;
+    else if (l_ok)           wall_err_mm = (float)(wallRefMm() - l_mm) * 2.0f;
+    else if (r_ok)           wall_err_mm = (float)(r_mm - wallRefMm()) * 2.0f;
 
     /* more room on the right -> aim a few degrees right (negative heading) */
     g_target_heading = -cfg_kw * wall_err_mm;
@@ -881,14 +953,19 @@ void driveTick(void) {
     if (corr > 0 && g_rate_dps < -YAW_GOVERNOR_DPS) corr = 0;
     if (corr < 0 && g_rate_dps >  YAW_GOVERNOR_DPS) corr = 0;
 
+    /* Effective base speed for this tick, after any junction deceleration. */
+    int base = cfg_min_pwm + (int)((cfg_base_pwm - cfg_min_pwm) * g_speed_scale);
+    if (base < cfg_min_pwm)   base = cfg_min_pwm;
+    if (base > cfg_base_pwm)  base = cfg_base_pwm;
+
     /* THE CLAMP. This one line is what prevents Adj:826 / PWM 0-vs-255. */
-    float cap = (cfg_base_pwm * CORR_RATIO_PCT) / 100.0f;
+    float cap = (base * CORR_RATIO_PCT) / 100.0f;
     if (corr >  cap) corr =  cap;
     if (corr < -cap) corr = -cap;
     g_last_corr = corr;
 
-    int l = cfg_base_pwm + (int)corr;
-    int r = cfg_base_pwm - (int)corr;
+    int l = base + (int)corr;
+    int r = base - (int)corr;
 
     /* Preserve the differential when a wheel would fall under the stall
      * floor: lift BOTH rather than clipping one, so the robot keeps steering
@@ -1157,20 +1234,49 @@ void mazeTick(void) {
         break;
     }
 
-    case ST_APPROACHING:
+    case ST_APPROACHING: {
+        /* Two different junctions, two different ways to know you have
+         * arrived -- conflating them is what made FD impossible to tune.
+         *
+         *   Wall ahead  -> the ToF gives an ABSOLUTE distance, so close the
+         *                  loop on it: ramp the speed down and park at
+         *                  frontStopMm(). Needs no speed calibration and is
+         *                  therefore repeatable.
+         *   No wall     -> nothing to range against, so fall back to the
+         *                  timer, which does depend on SP being measured. */
+        int stop_mm = frontStopMm();
+        bool have_wall = tofValid(S_FRONT);
+        int  f_mm = tofLatest(S_FRONT);
+
+        if (have_wall) {
+            if (f_mm <= stop_mm) {
+                LOGf("parked %d mm off the wall (target %d)", f_mm, stop_mm);
+                driveStopHard();
+                enterState(ST_STOPPING);
+                break;
+            }
+            /* Linear ramp: full speed at the detection distance, crawling by
+             * the time it reaches the stop point. */
+            int span = cfg_front_blk - stop_mm;
+            float sc = (span > 1) ? (float)(f_mm - stop_mm) / (float)span : 1.0f;
+            if (sc < 0.0f) sc = 0.0f;
+            if (sc > 1.0f) sc = 1.0f;
+            g_speed_scale = sc;
+        } else {
+            g_speed_scale = 1.0f;
+        }
+
         driveTick();
         if (g_stalled) { enterState(ST_IDLE); break; }
-        if (tofValid(S_FRONT) && tofLatest(S_FRONT) < cfg_front_stop) {
-            LOG("front wall close -- stopping short");
-            driveStop();
-            enterState(ST_STOPPING);
-            break;
-        }
-        if (inStateFor(approachMs())) {
-            driveStop();
+
+        /* The timer is now only a fallback, and a backstop if the wall is
+         * never seen at all. */
+        if (!have_wall && inStateFor(approachMs())) {
+            driveStopHard();
             enterState(ST_STOPPING);
         }
         break;
+    }
 
     case ST_CONFIRM_EXIT:
         driveTick();
@@ -1195,7 +1301,11 @@ void mazeTick(void) {
         break;
 
     case ST_STOPPING:
-        motorStop();
+        /* Hold the brake briefly, then release so the chassis settles before
+         * the gyro bias is sampled. Braking through the whole settle would
+         * keep the motors energised while we try to measure "stationary". */
+        if (!inStateFor(JUNCTION_BRAKE_MS)) motorBrake();
+        else                                motorStop();
         if (inStateFor(GYRO_SETTLE_MS)) enterState(ST_RECALIBRATING);
         break;
 
@@ -1269,7 +1379,12 @@ void printMenu(void) {
     LOGf("  LT:%d     left trim %%       RT:%d  right trim %%", cfg_left_trim, cfg_right_trim);
     LOGf("  KP:%.2f  KD:%.2f  KW:%.4f   TM:%.1f pivot stop margin",
          cfg_kp, cfg_kd, cfg_kw, cfg_margin);
-    LOGf("  FB:%d     wall-ahead mm     FD:%d  front stop mm", cfg_front_blk, cfg_front_stop);
+    LOGf("  CW:%d     corridor mm       RW:%d  robot width mm", cfg_corridor_w, cfg_robot_w);
+    LOGf("  AX:%d     sensor->axle mm", cfg_axle);
+    LOGf("  -> derived: centre-ref %d mm | park at %d mm | approach %d mm",
+         wallRefMm(), frontStopMm(), approachMm());
+    LOGf("  FB:%d     wall-ahead mm     FD:%d  front stop (0=auto=%d)",
+         cfg_front_blk, cfg_front_stop, frontStopMm());
     LOGf("  OP:%d     side-open mm      WE:%d  wall emergency mm", cfg_opening, cfg_wall_emerg);
     LOGf("  SP:%d     travel mm/s (approach %lu ms)  GS:%d  gyro sign",
          cfg_speed, (unsigned long)approachMs(), cfg_gyro_sign);
@@ -1382,6 +1497,9 @@ void handleCommand(String c) {
     else if (k == "OP")   cfg_opening    = (int)v;
     else if (k == "WE")   cfg_wall_emerg = (int)v;
     else if (k == "SP")   cfg_speed      = (int)v;
+    else if (k == "CW")   cfg_corridor_w = (int)v;
+    else if (k == "RW")   cfg_robot_w    = (int)v;
+    else if (k == "AX")   cfg_axle       = (int)v;
     else if (k == "KP")   cfg_kp         = v;
     else if (k == "KD")   cfg_kd         = v;
     else if (k == "KW")   cfg_kw         = v;
