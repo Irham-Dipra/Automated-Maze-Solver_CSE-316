@@ -179,12 +179,21 @@
  * A non-zero FD overrides it, for when the chassis needs extra clearance. */
 #define DEF_FRONT_STOP_MM       0
 
-/* Side wall closer than this gets an active, ramped steer-away. Previously
- * avoidance only fired on the sub-measurable "too close" flag (40 mm), i.e.
- * once the chassis was already touching -- the 59 mm approach in the 14:18
- * log got nothing but a 7 degree hint. mahee's drive.c fixes exactly this
- * and the fix was lost in the port. */
-#define DEF_WALL_EMERG_MM      90
+/* Side wall closer than this gets an active, ramped steer-away. Avoidance
+ * used to fire only on the sub-measurable "too close" flag (40 mm), i.e. once
+ * the chassis was already touching -- the 59 mm approach in the 14:18 log got
+ * nothing but a 7 degree hint.
+ *
+ * WE:0 derives it, because the right answer is pure arithmetic. Two facts set
+ * it: a centred chassis has (CW-RW)/2 of gap per side, and a side sensor
+ * inset from the widest point reads (RW-SS)/2 MORE than that gap. Panic when
+ * half the gap is used up, converted into what the sensor will read:
+ *
+ *     WE = (CW-RW)/4  +  (RW-SS)/2
+ *
+ * Forgetting the inset term is what makes a hand-picked WE fire late: the
+ * chassis is always nearer the wall than its sensor claims. */
+#define DEF_WALL_EMERG_MM       0    /* 0 = derive from the geometry        */
 #define WALL_EMERG_EXTRA_DEG  12.0f  /* added to the tilt cap at contact     */
 
 #define OPENING_CONFIRM       2
@@ -219,11 +228,11 @@
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
  * Your two motors are badly mismatched, so LT/RT trim each side
  * independently -- that mismatch is what made positional PID untunable. */
-#define DEF_BASE_PWM        110
-#define DEF_MIN_PWM          60
+#define DEF_BASE_PWM        135
+#define DEF_MIN_PWM          95
 #define DEF_MAX_PWM         230
 #define DEF_LEFT_TRIM       100      /* percent */
-#define DEF_RIGHT_TRIM      100      /* percent */
+#define DEF_RIGHT_TRIM      120      /* percent -- right motor is the weak one */
 #define KICK_PWM            200      /* breakaway pulse from standstill     */
 #define KICK_MS              60
 
@@ -232,8 +241,8 @@
  * Correction is capped at a FRACTION OF THE BASE SPEED, so lowering the base
  * automatically softens the steering instead of sharpening it. This cap is
  * the direct fix for the Adj:826 runaway. */
-#define DEF_KP              4.0f     /* PWM counts per degree of drift      */
-#define DEF_KD              0.25f    /* PWM counts per deg/s of yaw rate    */
+#define DEF_KP              4.5f     /* PWM counts per degree of drift      */
+#define DEF_KD              0.35f    /* PWM counts per deg/s of yaw rate    */
 #define DEF_KW              0.020f   /* deg of heading target per mm of
                                         wall-centring error                 */
 #define WALL_TILT_MAX_DEG    8.0f
@@ -431,6 +440,17 @@ int frontStopMm(void) {
     if (cfg_front_stop > 0) return cfg_front_stop;      /* manual override */
     int v = cfg_corridor_w / 2 - cfg_axle;
     return (v < FRONT_STOP_FLOOR_MM) ? FRONT_STOP_FLOOR_MM : v;
+}
+
+/* Side clearance, as a SENSOR READING, at which to steer away hard. See
+ * DEF_WALL_EMERG_MM for the derivation. */
+int wallEmergMm(void) {
+    if (cfg_wall_emerg > 0) return cfg_wall_emerg;      /* manual override */
+    int gap   = (cfg_corridor_w - cfg_robot_w) / 2;     /* chassis gap when centred */
+    int inset = (cfg_robot_w - cfg_span) / 2;           /* sensor sits inside that  */
+    if (inset < 0) inset = 0;
+    int v = gap / 2 + inset;
+    return (v < 30) ? 30 : v;
 }
 
 /* Time-based fallback for a junction with no wall ahead to measure against. */
@@ -970,13 +990,14 @@ void driveTick(void) {
      * the threshold: mahee's config.h records that a hard step measured 71
      * deg/s of yaw and bounced the robot off one wall straight into the
      * other. */
-    bool l_near = tofTooClose(S_LEFT)  || (l_ok && l_mm <= cfg_wall_emerg);
-    bool r_near = tofTooClose(S_RIGHT) || (r_ok && r_mm <= cfg_wall_emerg);
+    int  we = wallEmergMm();
+    bool l_near = tofTooClose(S_LEFT)  || (l_ok && l_mm <= we);
+    bool r_near = tofTooClose(S_RIGHT) || (r_ok && r_mm <= we);
 
     if (l_near != r_near) {                 /* pinned on exactly one side */
         int  d   = l_near ? (tofTooClose(S_LEFT)  ? 0 : l_mm)
                           : (tofTooClose(S_RIGHT) ? 0 : r_mm);
-        float sev = 1.0f - (float)d / (float)(cfg_wall_emerg > 0 ? cfg_wall_emerg : 1);
+        float sev = 1.0f - (float)d / (float)(we > 0 ? we : 1);
         if (sev < 0.0f) sev = 0.0f;
         if (sev > 1.0f) sev = 1.0f;
         float away = WALL_TILT_MAX_DEG + WALL_EMERG_EXTRA_DEG * sev;
@@ -1443,7 +1464,8 @@ void printMenu(void) {
          cfg_min_pwm + (int)((cfg_base_pwm - cfg_min_pwm) * APPROACH_CRAWL));
     LOGf("  FB:%d     wall-ahead mm     FD:%d  front stop (0=auto=%d)",
          cfg_front_blk, cfg_front_stop, frontStopMm());
-    LOGf("  OP:%d     side-open mm      WE:%d  wall emergency mm", cfg_opening, cfg_wall_emerg);
+    LOGf("  OP:%d     side-open mm      WE:%d  wall emergency (0=auto=%d)",
+         cfg_opening, cfg_wall_emerg, wallEmergMm());
     LOGf("  SP:%d     travel mm/s (approach %lu ms)  GS:%d  gyro sign",
          cfg_speed, (unsigned long)approachMs(), cfg_gyro_sign);
     /* The lift-both-wheels rule in driveTick() only pushes the OTHER wheel
