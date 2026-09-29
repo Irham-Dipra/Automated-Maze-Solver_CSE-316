@@ -196,7 +196,19 @@
 #define DEF_WALL_EMERG_MM       0    /* 0 = derive from the geometry        */
 #define WALL_EMERG_EXTRA_DEG  12.0f  /* added to the tilt cap at contact     */
 
-#define OPENING_CONFIRM       2
+/* Ticks a side must stay open before it counts as a junction. At 2 this was
+ * 40 ms: tofOpen() calls an OUT-OF-RANGE reading an opening, so two noisy
+ * pings off a dark or angled wall were enough to send the robot through the
+ * whole approach-park-look sequence and back out again with "no turning here
+ * after all" -- the little stall in the middle of a clean corridor. Five
+ * ticks is 100 ms, about 20 mm of travel: too short to miss a real opening
+ * 400 mm across, long enough that noise never survives it. */
+#define OPENING_CONFIRM       5
+/* The FRONT keeps its own, much shorter confirm. It shares no noise mode with
+ * the sides -- it is already vote-filtered over a 5-sample window -- and a
+ * wall ahead is the one reading the robot cannot afford to sit on. Slowing it
+ * to match the sides costs 60 ms of braking distance for nothing. */
+#define FRONT_CONFIRM         2
 #define DEADEND_CONFIRM       3
 #define FRONT_VOTE_WINDOW     5
 #define FRONT_VOTE_THRESHOLD  2
@@ -265,6 +277,15 @@
 #define CREEP_BRAKE_MS        70
 #define CREEP_SETTLE_MS      160     /* let it stop before re-measuring      */
 #define DEF_CREEP_PWM        165     /* must break static friction from rest */
+/* A creep pulse used to be open loop: the same PWM to both wheels, for a few
+ * tens of milliseconds, with nothing watching. Two mismatched TT motors do
+ * not travel straight under that, so every backward nudge added a few degrees
+ * of yaw -- always the same way, so six nudges over a run compound into a
+ * heading error big enough to clip the next corner. The gyro is live
+ * throughout (headingSample runs from loop(), not from driveTick), so close
+ * the loop: steer each pulse back onto the heading held at the stop. */
+#define CREEP_KP             3.0f    /* PWM counts per degree, during a nudge */
+#define CREEP_CORR_MAX        45     /* never let the differential dominate   */
 
 /* --- motors ----------------------------------------------------------- */
 /* MIN is the stall floor: below it the TT motors buzz but do not turn.
@@ -285,9 +306,20 @@
  * the direct fix for the Adj:826 runaway. */
 #define DEF_KP              4.5f     /* PWM counts per degree of drift      */
 #define DEF_KD              0.35f    /* PWM counts per deg/s of yaw rate    */
-#define DEF_KW              0.020f   /* deg of heading target per mm of
+/* How hard the centring pulls. This is NOT a steering gain -- it sets a
+ * heading TARGET, and the robot's sideways position is the integral of that
+ * heading. So the closed loop settles with a time constant of
+ *
+ *     tau = 1 / (2 * v * KW_in_radians)
+ *
+ * At KW 0.020 deg/mm and 250 mm/s that is about SIX SECONDS: a 1.1 m corridor
+ * is finished in four, so the robot never visibly re-centres and the only
+ * correction you ever see is the emergency one firing at the wall. 0.060
+ * brings it to ~2 s, which is quick enough to matter and still far slower
+ * than the heading loop underneath it, so the two do not fight. */
+#define DEF_KW              0.060f   /* deg of heading target per mm of
                                         wall-centring error                 */
-#define WALL_TILT_MAX_DEG    8.0f
+#define DEF_WALL_TILT_DEG    8.0f    /* WT -- max centring tilt, degrees    */
 /* Most the heading target may move in one 20 ms tick. Without this a side
  * reading that flickers between a number and out-of-range whips the target
  * across its whole range in a single tick -- the 10:35:24 log swings it from
@@ -423,6 +455,7 @@ int   cfg_creep_pwm  = DEF_CREEP_PWM;          /* CP -- park-nudge power     */
 float cfg_kp         = DEF_KP;
 float cfg_kd         = DEF_KD;
 float cfg_kw         = DEF_KW;
+float cfg_wall_tilt  = DEF_WALL_TILT_DEG;      /* WT -- centring tilt cap   */
 float cfg_margin     = DEF_STOP_MARGIN_DEG;
 int   cfg_gyro_sign  = 1;            /* flip with GS:-1 if mounted inverted */
 int   cfg_mode       = 3;            /* 0 telemetry 1 straight 2 turn 3 maze */
@@ -1017,6 +1050,8 @@ int   g_pwm_l = 0, g_pwm_r = 0;
  * wheels still turn at. This is what makes the stop repeatable instead of
  * "FD plus however far it coasted at whatever speed it happened to be". */
 float g_speed_scale = 1.0f;
+float g_wall_err    = 0;       /* last centring error, mm (+ = room on right) */
+char  g_wall_src    = '-';     /* which walls produced it: B / L / R / -      */
 float g_last_corr = 0;
 
 /* stall watchdog */
@@ -1127,14 +1162,21 @@ void driveTick(void) {
      * edge of an opening, and holding station off it steers the robot into
      * whatever is on the other side. */
     float wall_err_mm = 0;
-    if (l_ok && r_ok)                       wall_err_mm = (float)(r_mm - l_mm);
-    else if (l_ok && l_mm <= maxWallMm())   wall_err_mm = (float)(wallRefMm() - l_mm) * 2.0f;
-    else if (r_ok && r_mm <= maxWallMm())   wall_err_mm = (float)(r_mm - wallRefMm()) * 2.0f;
+    /* 'B'oth walls, 'L'eft only, 'R'ight only, '-' nothing to centre against.
+     * Printed in the telemetry, because "the centring is not working" and
+     * "the centring has no walls to work with" look identical from outside
+     * and need completely different fixes. */
+    char  src = '-';
+    if (l_ok && r_ok)                     { wall_err_mm = (float)(r_mm - l_mm);                      src = 'B'; }
+    else if (l_ok && l_mm <= maxWallMm()) { wall_err_mm = (float)(wallRefMm() - l_mm) * 2.0f;        src = 'L'; }
+    else if (r_ok && r_mm <= maxWallMm()) { wall_err_mm = (float)(r_mm - wallRefMm()) * 2.0f;        src = 'R'; }
+    g_wall_err = wall_err_mm;
+    g_wall_src = src;
 
     /* more room on the right -> aim a few degrees right (negative heading) */
     float want = -cfg_kw * wall_err_mm;
-    if (want >  WALL_TILT_MAX_DEG) want =  WALL_TILT_MAX_DEG;
-    if (want < -WALL_TILT_MAX_DEG) want = -WALL_TILT_MAX_DEG;
+    if (want >  cfg_wall_tilt) want =  cfg_wall_tilt;
+    if (want < -cfg_wall_tilt) want = -cfg_wall_tilt;
     {   /* rate-limit it, so a flickering sensor cannot whip the target */
         float d = want - g_target_heading;
         if (d >  WALL_TILT_SLEW_DEG) d =  WALL_TILT_SLEW_DEG;
@@ -1162,7 +1204,7 @@ void driveTick(void) {
         float sev = 1.0f - (float)d / (float)(we > 0 ? we : 1);
         if (sev < 0.0f) sev = 0.0f;
         if (sev > 1.0f) sev = 1.0f;
-        float away = WALL_TILT_MAX_DEG + WALL_EMERG_EXTRA_DEG * sev;
+        float away = cfg_wall_tilt + WALL_EMERG_EXTRA_DEG * sev;
         g_target_heading = l_near ? -away : away;   /* steer off that wall */
     }
 
@@ -1310,21 +1352,36 @@ void turnExecute(float degrees, bool right, TurnResult &res) {
 
 void turn90(bool right, TurnResult &res) { turnExecute(90.0f, right, res); }
 
-void turn180(TurnResult &res) {
+/* Which way to swing a U-turn. Both sides are walls at a dead end, but they
+ * are rarely the SAME distance away -- a robot parked off-centre has more
+ * room on one side, and sweeping into the tighter side is what grinds the
+ * chassis corner along the wall. Pick the roomier side and the swept corner
+ * has somewhere to go. A side that is too close to measure counts as zero. */
+bool uturnGoesRight(void) {
+    int l = tofTooClose(S_LEFT)  ? 0 : (int)tofMedian(S_LEFT);
+    int r = tofTooClose(S_RIGHT) ? 0 : (int)tofMedian(S_RIGHT);
+    if (!st[S_LEFT].present  || st[S_LEFT].n  == 0) l = -1;
+    if (!st[S_RIGHT].present || st[S_RIGHT].n == 0) r = -1;
+    /* No usable pair to compare -> keep the old right-hand default. */
+    if (l < 0 || r < 0) return true;
+    return r >= l;
+}
+
+void turn180(TurnResult &res, bool right) {
 #if TURN_180_AS_TWO_90S
     /* Two 90s with a settle between beats one long sweep: momentum has less
      * time to build, so there is less coast to correct for. */
     TurnResult a, b;
     memset(&b, 0, sizeof(b));
-    turnExecute(90.0f, true, a);
+    turnExecute(90.0f, right, a);
     delay(200);
-    if (!g_abort) turnExecute(90.0f, true, b);
+    if (!g_abort) turnExecute(90.0f, right, b);
     res.achieved_deg    = a.achieved_deg + b.achieved_deg;
     res.initial_err_deg = a.initial_err_deg + b.initial_err_deg;
     res.nudges          = a.nudges + b.nudges;
     res.timed_out       = a.timed_out || b.timed_out;
 #else
-    turnExecute(180.0f, true, res);
+    turnExecute(180.0f, right, res);
 #endif
 }
 
@@ -1449,7 +1506,7 @@ void updateDebounce(void) {
 Junction classify(void) {
     bool lo = cnt_open_l  >= OPENING_CONFIRM;
     bool ro = cnt_open_r  >= OPENING_CONFIRM;
-    bool fw = cnt_block_f >= OPENING_CONFIRM;
+    bool fw = cnt_block_f >= FRONT_CONFIRM;
 
     if (cnt_deadend >= DEADEND_CONFIRM)  return J_DEAD_END;
     if (!fw &&  lo &&  ro)               return J_ALL_OPEN;
@@ -1680,11 +1737,33 @@ void mazeTick(void) {
             int ms = (int)(abs(err) * CREEP_MS_PER_MM);
             if (ms < CREEP_MS_MIN) ms = CREEP_MS_MIN;
             if (ms > CREEP_MS_MAX) ms = CREEP_MS_MAX;
-            int l = (cfg_creep_pwm * cfg_left_trim)  / 100;
-            int r = (cfg_creep_pwm * cfg_right_trim) / 100;
+
+            bool fwd = (err > 0);
+
+            /* Steer the nudge straight. corr > 0 means "go right" -- but that
+             * is only true driving forward. Reversing the wheels reverses
+             * which way a given differential swings the nose, so the sign has
+             * to flip or the correction doubles the error instead of removing
+             * it. */
+            float drift = g_heading_deg - g_target_heading;
+            int   corr  = (int)(CREEP_KP * drift);
+            if (corr >  CREEP_CORR_MAX) corr =  CREEP_CORR_MAX;
+            if (corr < -CREEP_CORR_MAX) corr = -CREEP_CORR_MAX;
+            if (!fwd) corr = -corr;
+
+            int l = cfg_creep_pwm + corr;
+            int r = cfg_creep_pwm - corr;
+            /* Lift both rather than clip one, so the differential survives. */
+            if (l < cfg_min_pwm) { r += (cfg_min_pwm - l); l = cfg_min_pwm; }
+            if (r < cfg_min_pwm) { l += (cfg_min_pwm - r); r = cfg_min_pwm; }
+            l = (l * cfg_left_trim)  / 100;
+            r = (r * cfg_right_trim) / 100;
             if (l > cfg_max_pwm) l = cfg_max_pwm;
             if (r > cfg_max_pwm) r = cfg_max_pwm;
-            motorSend(err > 0 ? 'F' : 'B', l, r);
+            motorSend(fwd ? 'F' : 'B', l, r);
+            LOGf("  nudge %d: %s %d ms  err %+d mm  hdg %+.1f  corr %+d",
+                     s_creep_pulses + 1, fwd ? "fwd" : "back", ms, err,
+                     drift, corr);
             s_creep_driving = true;
             s_creep_until   = millis() + ms;
             s_creep_pulses++;
@@ -1757,9 +1836,12 @@ void mazeTick(void) {
     case ST_DECIDING: {
         TurnResult r;
         if (pend_180) {
-            LOG("180...");
+            bool u_right = uturnGoesRight();
+            LOGf("180 via the %s (L:%s R:%s -- more room that side)...",
+                 u_right ? "RIGHT" : "LEFT",
+                 rangeStr(S_LEFT).c_str(), rangeStr(S_RIGHT).c_str());
             recordTurn('U');
-            turn180(r);
+            turn180(r, u_right);
         } else {
             LOGf("turn %s...", pend_right ? "RIGHT" : "LEFT");
             recordTurn(pend_right ? 'R' : 'L');
@@ -1819,8 +1901,8 @@ void printMenu(void) {
     LOGf("  BL:%d     base PWM          MN:%d  stall floor", cfg_base_pwm, cfg_min_pwm);
     LOGf("  MX:%d     max PWM           TP:%d  pivot PWM",   cfg_max_pwm, cfg_turn_pwm);
     LOGf("  LT:%d     left trim %%       RT:%d  right trim %%", cfg_left_trim, cfg_right_trim);
-    LOGf("  KP:%.2f  KD:%.2f  KW:%.4f   TM:%.1f pivot stop margin",
-         cfg_kp, cfg_kd, cfg_kw, cfg_margin);
+    LOGf("  KP:%.2f  KD:%.2f  KW:%.4f  WT:%.1f  TM:%.1f pivot stop margin",
+         cfg_kp, cfg_kd, cfg_kw, cfg_wall_tilt, cfg_margin);
     LOGf("  CW:%d     corridor mm       RW:%d  widest mm   RL:%d  length mm",
          cfg_corridor_w, cfg_robot_w, cfg_robot_l);
     LOGf("  AX:%d     front sensor->axle  SA:%d  side sensor->axle",
@@ -1996,6 +2078,7 @@ void handleCommand(String c) {
     else if (k == "KP")   cfg_kp         = v;
     else if (k == "KD")   cfg_kd         = v;
     else if (k == "KW")   cfg_kw         = v;
+    else if (k == "WT")   cfg_wall_tilt  = v;
     else if (k == "TM")   cfg_margin     = v;
     else if (k == "GS")   cfg_gyro_sign  = (v < 0) ? -1 : 1;
     else { LOG("? unknown key -- send MENU"); return; }
@@ -2048,9 +2131,9 @@ void telemetry(void) {
 
     if (millis() - last < TELEMETRY_MS) return;
     last = millis();
-    LOGf("M%d %-8s F:%-5s L:%-5s R:%-5s fv:%d | Hdg:%+6.1f Tgt:%+5.1f Rate:%+6.1f Corr:%+5.0f | L:%3d R:%3d",
+    LOGf("M%d %-8s F:%-5s L:%-5s R:%-5s fv:%d | ctr:%c%+5.0f | Hdg:%+6.1f Tgt:%+5.1f Rate:%+6.1f Corr:%+5.0f | L:%3d R:%3d",
          cfg_mode, ST_NAME[g_state], rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
-         rangeStr(S_RIGHT).c_str(), frontVotes(),
+         rangeStr(S_RIGHT).c_str(), frontVotes(), g_wall_src, g_wall_err,
          g_heading_deg, g_target_heading, g_rate_dps, g_last_corr, g_pwm_l, g_pwm_r);
 }
 

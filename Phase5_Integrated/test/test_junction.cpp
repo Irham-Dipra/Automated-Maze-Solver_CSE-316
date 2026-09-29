@@ -37,7 +37,7 @@ int main(){
   printf("\n=== the 21:19 junction: front wall, BOTH sides open ===\n");
   printf("(left opened one tick before the right, which is what tipped it)\n");
   hold(8190,150,150,6);            // corridor, both walls present
-  hold(250,8190,159,3);            // LEFT opens first, RIGHT still a wall (250 < FB)
+  hold(250,8190,159,6);            // LEFT opens first, RIGHT still a wall (250 < FB)
   printf("  mid-approach classify() = %d (J_FORCED_LEFT is %d)\n",
          (int)classify(), (int)J_FORCED_LEFT);
   check("driving-time view really is 'forced left' (the old bug)",
@@ -60,7 +60,7 @@ int main(){
   check("classify() does not call it a right turning", classify()!=J_FWD_OR_RIGHT);
   hold(8190,150,150,4);                      // new corridor's right wall arrives
   check("block releases once a real wall appears alongside", s_blocked_side==-1);
-  hold(8190,150,8190,4);                     // a genuine later right turning
+  hold(8190,150,8190,6);                     // a genuine later right turning
   check("a genuine right turning is seen again", cnt_open_r>=OPENING_CONFIRM);
 
   printf("\n=== the block cannot latch forever ===\n");

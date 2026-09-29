@@ -57,8 +57,39 @@ int main(){
 
   printf("\n=== a real right turning is still seen ===\n");
   tofFlush(); s_blocked_side=-1;
-  hold(250,180,8190,6);
+  hold(250,180,8190,9);
+  printf("  cnt_open_r=%d (needs %d)  cnt_block_f=%d (needs %d)\n",
+         cnt_open_r, OPENING_CONFIRM, cnt_block_f, FRONT_CONFIRM);
   check("front blocked + right open -> forced right", classify()==J_FORCED_RIGHT);
+
+  /* The whole point of the longer side confirm: a couple of noisy pings off a
+   * dark wall used to be a junction, which sent the robot through the entire
+   * approach-park-look-give-up sequence in the middle of a clean corridor. */
+  printf("\n=== a brief flicker is NOT a junction ===\n");
+  tofFlush(); s_blocked_side=-1;
+  hold(8190,180,180,6);                 /* settled corridor, both walls */
+  check("clean corridor reads as corridor", classify()==J_CORRIDOR);
+  hold(8190,180,8190,2);                /* right flickers out of range */
+  printf("  after a 2-tick flicker: cnt_open_r=%d -> classify=%d\n",
+         cnt_open_r, (int)classify());
+  check("a 2-tick right flicker does not invent a turning",
+        classify()==J_CORRIDOR);
+  hold(8190,180,180,4);                 /* wall comes back */
+  check("and the corridor is still a corridor after it", classify()==J_CORRIDOR);
+
+  /* But a real opening, which persists, must still be seen. */
+  printf("\n=== a real side opening is still seen ===\n");
+  hold(8190,180,8190,9);
+  check("a sustained right opening -> fwd-or-right", classify()==J_FWD_OR_RIGHT);
+
+  /* U-turn side selection: pick whichever side has more room. */
+  printf("\n=== U-turn swings toward the roomier side ===\n");
+  tofFlush(); s_blocked_side=-1;
+  hold(250,220,120,6);
+  check("more room on the left -> U-turn goes left", uturnGoesRight()==false);
+  tofFlush();
+  hold(250,120,220,6);
+  check("more room on the right -> U-turn goes right", uturnGoesRight()==true);
 
   printf("\n=== a flickering side cannot whip the heading target ===\n");
   tofFlush(); s_blocked_side=-1;

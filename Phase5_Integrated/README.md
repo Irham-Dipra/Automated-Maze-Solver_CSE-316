@@ -396,7 +396,7 @@ if the side sensors are unreliable.
 ### What the telemetry line means
 
 ```
-M3 DRIVING  F:412  L:180  R:175  fv:2 | Hdg: -2.1 Tgt: +0.5 Rate: -8.3 Corr: -11 | L:100 R:152
+M3 DRIVING  F:412  L:180  R:175  fv:2 | ctr:B  +12 | Hdg: -2.1 Tgt: +0.5 Rate: -8.3 Corr: -11 | L:100 R:152
 ```
 
 | Field | Meaning |
@@ -405,6 +405,7 @@ M3 DRIVING  F:412  L:180  R:175  fv:2 | Hdg: -2.1 Tgt: +0.5 Rate: -8.3 Corr: -11
 | `DRIVING` | maze state machine state |
 | `F/L/R` | median distance in mm. `oo` nothing in range, `<<` too close to measure, `--` sensor never initialised |
 | `fv` | front votes, 0–5. A wall is believed at 2 |
+| `ctr` | wall-centring: which walls it is using, then the error in mm. `B` both, `L` left only, `R` right only, `-` nothing usable. **+ = more room on the right**. `ctr:-` while both walls are visibly there means the centring is getting no input, which is a completely different problem from the centring being too weak |
 | `Hdg` | heading since this leg started, degrees. **+ = rotated left** |
 | `Tgt` | heading the controller is aiming for, set by wall centring. + = aim left |
 | `Rate` | yaw rate, deg/s |
@@ -449,7 +450,8 @@ clamp both to MX
 | `TM` | deg | 8.0 | how early the pivot sweep stops, to leave room for the coast |
 | `KP` | PWM/deg | 4.0 | how hard to correct per degree off heading |
 | `KD` | PWM/(deg/s) | 0.25 | damping against the current yaw rate |
-| `KW` | deg/mm | 0.020 | how many degrees to tilt the heading target per mm off centre |
+| `KW` | deg/mm | 0.060 | how many degrees to tilt the heading target per mm off centre |
+| `WT` | deg | 8.0 | ceiling on that tilt. Raise it with `KW` if the corridor is wide and it still drifts; above ~12° the side sensors start looking at the wall obliquely and read long |
 | `FB` | mm | 300 | distance at which a wall ahead is **believed** |
 | `FD` | mm | 120 | how close it parks before pivoting |
 | `OP` | mm | 280 | beyond this a side counts as **open** — declares a junction |
@@ -461,7 +463,41 @@ clamp both to MX
 Compile-time values you may eventually need to edit in the sketch:
 `CORRIDOR_WIDTH_MM` (360), `SENSOR_TO_AXLE_MM` (120), `WALL_TILT_MAX_DEG` (8),
 `CORR_RATIO_PCT` (40), `YAW_GOVERNOR_DPS` (60), `GYRO_LSB_PER_DPS` (65.5),
-`OPENING_CONFIRM` (2), `FRONT_VOTE_THRESHOLD` (2 of 5), `TOF_LATCH_MS` (400).
+`OPENING_CONFIRM` (5), `FRONT_CONFIRM` (2), `FRONT_VOTE_THRESHOLD` (2 of 5),
+`TOF_LATCH_MS` (400), `CREEP_KP` (3.0).
+
+## 5b. Watching it from a PC
+
+`tools/maze_monitor.py` is a terminal for the same Bluetooth link the phone
+app uses, except it keeps everything. A run produces a few thousand lines and
+the one that explains a crash is always the one that just scrolled off the
+phone; this writes every line to `tools/logs/maze-<timestamp>.log` as it
+arrives, flushed per line, so a brownout or a reset loses nothing.
+
+```sh
+pip install pyserial
+python3 tools/maze_monitor.py            # find the robot, connect, log
+python3 tools/maze_monitor.py --list     # if it cannot tell which port
+```
+
+Pair the ESP32 first — it speaks Bluetooth **Classic SPP**, not BLE:
+
+| | |
+|---|---|
+| Windows | Settings → Bluetooth → Add device → `MazeBot`. Pairing makes two COM ports; use the **outgoing** one |
+| Linux | `bluetoothctl` → `scan on` / `pair <MAC>` / `trust <MAC>`, then either `--mac AA:BB:...` (direct RFCOMM, no further setup) or `sudo rfcomm bind 0 <MAC>` → `/dev/rfcomm0` |
+| macOS | pair in System Settings; the port shows up as `/dev/cu.MazeBot-*` |
+
+Type robot commands normally (`MENU`, `START`, `STOP`, `KW:0.08`). Lines
+beginning with `/` are handled locally and never reach the robot:
+
+| | |
+|---|---|
+| `/f <text>` | only **print** lines containing `<text>` — the log still gets everything. `/f` alone clears it |
+| `/mark <note>` | write a divider and a note into the log, so you can find the run you just did |
+| `/stats` | lines, bytes, elapsed |
+| `/log` | path of the current log file |
+| `/q` | quit — sends `STOP` on the way out, so quitting the monitor never leaves the robot driving |
 
 ## 6. Regression test (runs on a PC, no robot needed)
 
