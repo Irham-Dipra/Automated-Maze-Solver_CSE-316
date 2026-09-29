@@ -485,7 +485,7 @@ Pair the ESP32 first — it speaks Bluetooth **Classic SPP**, not BLE:
 | | |
 |---|---|
 | Windows | Settings → Bluetooth → Add device → `MazeSolver_P5`. Pairing makes two COM ports; use the **outgoing** one |
-| Linux | `bluetoothctl` → `scan on` / `pair <MAC>` / `trust <MAC>`, then either `--mac AA:BB:...` (direct RFCOMM, no further setup) or `sudo rfcomm bind 0 <MAC>` → `/dev/rfcomm0` |
+| Linux | `bluetoothctl` → `scan on` / `pair <MAC>` / `trust <MAC>` / `scan off`, then `--mac AA:BB:...` (direct RFCOMM, no further setup). The RFCOMM channel is discovered over SDP — it is **not** always 1 — and `--channel N` overrides it |
 | macOS | pair in System Settings; the port shows up as `/dev/cu.MazeSolver_P5-*` |
 
 Type robot commands normally (`MENU`, `START`, `STOP`, `KW:0.08`). Lines
@@ -498,6 +498,11 @@ beginning with `/` are handled locally and never reach the robot:
 | `/stats` | lines, bytes, elapsed |
 | `/log` | path of the current log file |
 | `/q` | quit — sends `STOP` on the way out, so quitting the monitor never leaves the robot driving |
+
+**The ESP32 accepts exactly one Bluetooth client.** While the phone app is
+connected the PC cannot get in, and the failure looks like a dead robot rather
+than a busy one. Disconnect the phone first. If a connection still fails the
+monitor names the cause from the errno rather than printing a bare timeout.
 
 ## 6. Regression test (runs on a PC, no robot needed)
 

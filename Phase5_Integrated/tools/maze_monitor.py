@@ -27,9 +27,11 @@ CONNECTING
 
   Windows  Settings > Bluetooth > Add device > 'MazeSolver_P5'. Pairing creates two
            COM ports; use the OUTGOING one. This script will list them.
-  Linux    bluetoothctl -> scan on / pair <MAC> / trust <MAC>, then either
-           pass --mac (a direct RFCOMM socket, nothing else needed) or bind
-           a port with: sudo rfcomm bind 0 <MAC>  -> /dev/rfcomm0
+  Linux    bluetoothctl -> scan on / pair <MAC> / trust <MAC> / scan off,
+           then pass --mac (a direct RFCOMM socket, nothing else needed).
+           The channel is found over SDP; --channel overrides it. Failing
+           that: sudo rfcomm bind 0 <MAC>  ->  --port /dev/rfcomm0
+           NOTE the ESP32 takes ONE client at a time: close the phone app.
   macOS    pair in System Settings; the port appears as /dev/cu.MazeSolver_P5-*
 
 Needs pyserial for the serial path:  pip install pyserial
@@ -82,18 +84,100 @@ class SerialLink:
         return self.port
 
 
+def sdp_channel(mac):
+    """Ask the device which RFCOMM channel its serial port is on.
+
+    Nothing guarantees channel 1. The ESP32 stack picks a free one when it
+    registers the SPP record, so a firmware that also advertises another
+    profile can land on 2 or 3 -- and hardcoding 1 then fails in a way that
+    looks like the robot is switched off. sdptool ships with bluez, which is
+    already installed if pairing worked. Returns None if it cannot tell.
+    """
+    import re
+    import subprocess
+    try:
+        out = subprocess.run(["sdptool", "browse", "--uuid", "1101", mac],
+                             capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"Channel:\s*(\d+)", out)
+    return int(m.group(1)) if m else None
+
+
+def _explain(mac, err):
+    """Turn an errno into the thing that is actually wrong."""
+    import errno as E
+    n = getattr(err, "errno", None)
+    if isinstance(err, socket.timeout) or n == E.ETIMEDOUT:
+        return ("The robot never answered.\n"
+                "  Most likely, in order:\n"
+                "   1. SOMETHING ELSE IS ALREADY CONNECTED. The ESP32 accepts\n"
+                "      exactly one SPP client -- disconnect the phone app.\n"
+                "   2. The ESP32 is off, resetting, or browning out.\n"
+                "   3. Out of range, or the adapter is still busy scanning:\n"
+                "        bluetoothctl -- scan off\n"
+                "  Check it is reachable at all:  sudo l2ping -c 3 %s" % mac)
+    if n == E.ECONNREFUSED:
+        return ("The robot is there but refused that channel -- almost always\n"
+                "  the wrong RFCOMM channel. Find the real one:\n"
+                "    sdptool browse --uuid 1101 %s\n"
+                "  then pass it:  --channel <N>" % mac)
+    if n in (E.EBUSY, E.EADDRINUSE):
+        return ("The channel is in use. Something else has the robot -- the\n"
+                "  phone app, a second copy of this monitor, or a stale\n"
+                "  binding:  sudo rfcomm release all")
+    if n in (E.EHOSTDOWN, E.EHOSTUNREACH, E.ENETDOWN, E.ENETUNREACH):
+        return ("The adapter or the link is down:\n"
+                "    sudo systemctl start bluetooth && bluetoothctl -- power on")
+    if n in (E.EPERM, E.EACCES):
+        return ("Permission denied. Your user is probably not in the bluetooth\n"
+                "  group:  sudo usermod -aG bluetooth $USER   (then log out/in)")
+    return "Unexpected error: %r" % (err,)
+
+
 class RfcommLink:
     """Linux only: talk RFCOMM straight to the MAC, skipping rfcomm bind."""
 
-    def __init__(self, mac, channel=1):
+    def __init__(self, mac, channel=None, timeout=8.0, verbose=True):
         if not hasattr(socket, "AF_BLUETOOTH"):
             sys.exit("--mac needs Linux (AF_BLUETOOTH). Use --port instead.")
         self.mac = mac
-        self.s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM,
-                               socket.BTPROTO_RFCOMM)
-        self.s.settimeout(10.0)
-        self.s.connect((mac, channel))
-        self.s.settimeout(0.2)
+
+        if channel:
+            candidates = [channel]
+        else:
+            found = sdp_channel(mac)
+            if found:
+                if verbose:
+                    print("SDP says the serial port is on channel %d" % found)
+                candidates = [found]
+            else:
+                # SDP told us nothing (sdptool missing, or the device would not
+                # answer a browse). Try the channels an ESP32 actually uses
+                # rather than giving up on 1 alone.
+                if verbose:
+                    print("SDP gave no channel -- trying the usual ones")
+                candidates = [1, 2, 3]
+
+        last = None
+        for ch in candidates:
+            s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM,
+                              socket.BTPROTO_RFCOMM)
+            s.settimeout(timeout)
+            try:
+                s.connect((mac, ch))
+            except OSError as e:
+                s.close()
+                last = e
+                if verbose and len(candidates) > 1:
+                    print("  channel %d: %s" % (ch, e))
+                continue
+            self.channel = ch
+            self.s = s
+            self.s.settimeout(0.2)
+            return
+
+        sys.exit("\nCould not open %s.\n\n  %s\n" % (mac, _explain(mac, last)))
 
     def read(self):
         try:
@@ -281,7 +365,8 @@ def main():
         epilog=__doc__)
     ap.add_argument("--port", help="serial port (COM7, /dev/rfcomm0, ...)")
     ap.add_argument("--mac", help="Bluetooth MAC, Linux direct RFCOMM")
-    ap.add_argument("--channel", type=int, default=1, help="RFCOMM channel")
+    ap.add_argument("--channel", type=int, default=0,
+                    help="RFCOMM channel (default: ask the device over SDP)")
     ap.add_argument("--baud", type=int, default=115200,
                     help="ignored over real SPP, but some stacks want it")
     ap.add_argument("--log", help="log file path (default logs/maze-<time>.log)")
@@ -304,7 +389,7 @@ def main():
             d, "maze-%s.log" % datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     if a.mac:
-        link = RfcommLink(a.mac, a.channel)
+        link = RfcommLink(a.mac, a.channel or None)
     else:
         link = SerialLink(a.port or pick_port(), a.baud)
 
