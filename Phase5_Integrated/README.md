@@ -499,6 +499,22 @@ beginning with `/` are handled locally and never reach the robot:
 | `/log` | path of the current log file |
 | `/q` | quit — sends `STOP` on the way out, so quitting the monitor never leaves the robot driving |
 
+Opening a port is **not** the same as being connected to something. On Linux
+`rfcomm bind` creates `/dev/rfcomm0` whether or not the link ever comes up,
+and pyserial opens a tty non-blocking, so a dead link still looks like a
+working session — commands vanish and nothing ever arrives. The monitor now
+sends `MENU` at startup and warns loudly if nothing answers within 4 seconds
+(`--no-probe` disables it). The most reliable way to get a link that is
+genuinely up, in a second terminal, left running:
+
+```sh
+sudo rfcomm release 0
+sudo rfcomm connect 0 B0:3F:D3:5A:A0:8A 1   # must print "Connected ..."
+```
+
+Note that a monitor suspended with Ctrl-Z still holds the port — `jobs`, then
+`kill %N`.
+
 On Linux, if `--mac` times out while `sudo l2ping -c 3 <MAC>` gets replies,
 the radio link is fine and it is the direct socket bluez will not complete.
 Bind a device node instead — a different path through bluez, and it works

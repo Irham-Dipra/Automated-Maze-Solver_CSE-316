@@ -49,6 +49,8 @@ from datetime import datetime
 
 # The firmware advertises this name -- SerialBT.begin("MazeSolver_P5").
 BT_NAME = "mazesolver"
+# Only ever used to fill in example commands in an error message.
+BT_MAC_HINT = "<MAC>"
 DEFAULT_NAME_HINTS = (BT_NAME, "maze", "esp32", "bt", "rfcomm", "silab", "cp210", "ch340")
 
 
@@ -245,12 +247,13 @@ def pick_port():
 # the monitor
 # --------------------------------------------------------------------------
 class Monitor:
-    def __init__(self, link, log_path, echo=True):
+    def __init__(self, link, log_path, echo=True, do_probe=True):
         self.link = link
         self.log = open(log_path, "a", buffering=1, encoding="utf-8",
                         errors="replace")
         self.log_path = log_path
         self.echo = echo
+        self.do_probe = do_probe
         self.filter = None
         self.stop = threading.Event()
         self.lines = 0
@@ -331,11 +334,57 @@ class Monitor:
                        % cmd, to_log=False)
         return True
 
+    def probe(self, seconds=4.0):
+        """Prove the robot is actually on the other end before saying so.
+
+        Opening /dev/rfcomm0 is not the same as being connected to anything.
+        pyserial opens a tty non-blocking, so the open succeeds the instant
+        the node exists and the RFCOMM link can still fail behind it -- which
+        looks exactly like a working session where every command vanishes and
+        nothing ever comes back. MENU is answered unconditionally by the
+        firmware, even mid-run, so silence here means no link.
+        """
+        # Anything already arriving is itself proof of life -- a robot mid-run
+        # streams telemetry without being asked. Only a silent link needs the
+        # nudge. (Snapshotting a "before" count here instead would race the
+        # reader thread and fail against a robot that answers instantly.)
+        if self.lines:
+            return True
+        self.out.put(b"MENU\n")
+        deadline = time.time() + seconds
+        while time.time() < deadline and not self.lines:
+            if self.stop.is_set():
+                return False
+            time.sleep(0.1)
+        return self.lines > 0
+
     def run(self):
         threading.Thread(target=self.reader, daemon=True).start()
         threading.Thread(target=self.writer, daemon=True).start()
-        self._emit("[connected to %s -- logging to %s]"
-                   % (self.link, self.log_path))
+        self._emit("[opened %s -- logging to %s]" % (self.link, self.log_path))
+
+        if self.do_probe and not self.probe():
+            self._emit("")
+            self._emit("*** NO REPLY FROM THE ROBOT ***")
+            self._emit("  The port is open but MENU went unanswered, so there is")
+            self._emit("  no live link -- anything you type will vanish. Causes,")
+            self._emit("  in the order worth checking:")
+            self._emit("")
+            self._emit("   1. Something else already has it. The ESP32 serves ONE")
+            self._emit("      Bluetooth client: disconnect the phone app, and")
+            self._emit("      check for a monitor you suspended with Ctrl-Z --")
+            self._emit("      it still holds the port.  jobs   then   kill %N")
+            self._emit("   2. The rfcomm node exists but never connected. Prove")
+            self._emit("      it in another terminal, and leave it running:")
+            self._emit("        sudo rfcomm release 0")
+            self._emit("        sudo rfcomm connect 0 %s 1" % BT_MAC_HINT)
+            self._emit("      It must print 'Connected /dev/rfcomm0 to ...'.")
+            self._emit("      Then start this monitor again.")
+            self._emit("   3. Stale pairing. Remove and pair again:")
+            self._emit("        bluetoothctl -- remove %s" % BT_MAC_HINT)
+            self._emit("   4. The ESP32 is not running this firmware, or its")
+            self._emit("      Bluetooth failed to start -- watch its boot over USB.")
+            self._emit("")
         self._emit("[type MENU for the robot's menu, /q to quit]", to_log=False)
         try:
             while not self.stop.is_set():
@@ -381,6 +430,8 @@ def main():
     ap.add_argument("--list", action="store_true", help="list ports and exit")
     ap.add_argument("--no-echo", action="store_true",
                     help="do not show what you typed")
+    ap.add_argument("--no-probe", action="store_true",
+                    help="skip the startup check that the robot is answering")
     a = ap.parse_args()
 
     if a.list:
@@ -401,7 +452,11 @@ def main():
     else:
         link = SerialLink(a.port or pick_port(), a.baud)
 
-    Monitor(link, path, echo=not a.no_echo).run()
+    global BT_MAC_HINT
+    if a.mac:
+        BT_MAC_HINT = a.mac
+
+    Monitor(link, path, echo=not a.no_echo, do_probe=not a.no_probe).run()
 
 
 if __name__ == "__main__":
