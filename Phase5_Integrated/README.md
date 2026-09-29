@@ -484,9 +484,9 @@ Pair the ESP32 first — it speaks Bluetooth **Classic SPP**, not BLE:
 
 | | |
 |---|---|
-| Windows | Settings → Bluetooth → Add device → `MazeBot`. Pairing makes two COM ports; use the **outgoing** one |
+| Windows | Settings → Bluetooth → Add device → `MazeSolver_P5`. Pairing makes two COM ports; use the **outgoing** one |
 | Linux | `bluetoothctl` → `scan on` / `pair <MAC>` / `trust <MAC>`, then either `--mac AA:BB:...` (direct RFCOMM, no further setup) or `sudo rfcomm bind 0 <MAC>` → `/dev/rfcomm0` |
-| macOS | pair in System Settings; the port shows up as `/dev/cu.MazeBot-*` |
+| macOS | pair in System Settings; the port shows up as `/dev/cu.MazeSolver_P5-*` |
 
 Type robot commands normally (`MENU`, `START`, `STOP`, `KW:0.08`). Lines
 beginning with `/` are handled locally and never reach the robot:

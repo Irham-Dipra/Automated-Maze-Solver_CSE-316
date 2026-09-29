@@ -25,12 +25,12 @@ goes to the robot; lines starting with '/' are handled here instead:
 CONNECTING
   The ESP32 speaks Bluetooth Classic SPP (not BLE), so pair it first:
 
-  Windows  Settings > Bluetooth > Add device > 'MazeBot'. Pairing creates two
+  Windows  Settings > Bluetooth > Add device > 'MazeSolver_P5'. Pairing creates two
            COM ports; use the OUTGOING one. This script will list them.
   Linux    bluetoothctl -> scan on / pair <MAC> / trust <MAC>, then either
            pass --mac (a direct RFCOMM socket, nothing else needed) or bind
            a port with: sudo rfcomm bind 0 <MAC>  -> /dev/rfcomm0
-  macOS    pair in System Settings; the port appears as /dev/cu.MazeBot-*
+  macOS    pair in System Settings; the port appears as /dev/cu.MazeSolver_P5-*
 
 Needs pyserial for the serial path:  pip install pyserial
 --mac on Linux needs nothing but the standard library.
@@ -45,7 +45,9 @@ import threading
 import time
 from datetime import datetime
 
-DEFAULT_NAME_HINTS = ("mazebot", "esp32", "bt", "rfcomm", "silab", "cp210", "ch340")
+# The firmware advertises this name -- SerialBT.begin("MazeSolver_P5").
+BT_NAME = "mazesolver"
+DEFAULT_NAME_HINTS = (BT_NAME, "maze", "esp32", "bt", "rfcomm", "silab", "cp210", "ch340")
 
 
 # --------------------------------------------------------------------------
@@ -129,7 +131,7 @@ def pick_port():
     def score(p):
         blob = " ".join(str(x or "") for x in (p.device, p.description,
                                                p.manufacturer, p.name)).lower()
-        return sum(2 if h == "mazebot" else 1
+        return sum(3 if h == BT_NAME else 1
                    for h in DEFAULT_NAME_HINTS if h in blob)
 
     ranked = sorted(ports, key=score, reverse=True)
