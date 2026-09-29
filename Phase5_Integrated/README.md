@@ -18,6 +18,12 @@ register access — no library.
 
 ---
 
+> **Project report:** [`PROJECT_REPORT.md`](../PROJECT_REPORT.md) at the repo
+> root covers the whole project — timeline, architecture, a section-by-section
+> explanation of the firmware, and a full account of the shortest-path mode:
+> what was built, why it failed on the real maze, and what would be needed to
+> finish it.
+
 ## 1. What was actually wrong
 
 Derived from `bluetooth_logs/`, `Reports/Progress_Report.txt`, and comparing
