@@ -499,6 +499,16 @@ beginning with `/` are handled locally and never reach the robot:
 | `/log` | path of the current log file |
 | `/q` | quit — sends `STOP` on the way out, so quitting the monitor never leaves the robot driving |
 
+On Linux, if `--mac` times out while `sudo l2ping -c 3 <MAC>` gets replies,
+the radio link is fine and it is the direct socket bluez will not complete.
+Bind a device node instead — a different path through bluez, and it works
+where the socket does not:
+
+```sh
+sudo rfcomm bind 0 B0:3F:D3:5A:A0:8A
+python3 maze_monitor.py --port /dev/rfcomm0
+```
+
 **The ESP32 accepts exactly one Bluetooth client.** While the phone app is
 connected the PC cannot get in, and the failure looks like a dead robot rather
 than a busy one. Disconnect the phone first. If a connection still fails the

@@ -116,7 +116,14 @@ def _explain(mac, err):
                 "   2. The ESP32 is off, resetting, or browning out.\n"
                 "   3. Out of range, or the adapter is still busy scanning:\n"
                 "        bluetoothctl -- scan off\n"
-                "  Check it is reachable at all:  sudo l2ping -c 3 %s" % mac)
+                "  Check it is reachable at all:  sudo l2ping -c 3 %s\n"
+                "\n"
+                "  If l2ping DOES get replies, the radio link is fine and it is\n"
+                "  this socket that bluez will not complete. Bind a device node\n"
+                "  instead -- a different path through bluez, and it works when\n"
+                "  the direct socket does not:\n"
+                "    sudo rfcomm bind 0 %s\n"
+                "    python3 maze_monitor.py --port /dev/rfcomm0" % (mac, mac))
     if n == E.ECONNREFUSED:
         return ("The robot is there but refused that channel -- almost always\n"
                 "  the wrong RFCOMM channel. Find the real one:\n"
@@ -331,10 +338,11 @@ class Monitor:
                    % (self.link, self.log_path))
         self._emit("[type MENU for the robot's menu, /q to quit]", to_log=False)
         try:
-            for line in sys.stdin:
-                if self.stop.is_set():
+            while not self.stop.is_set():
+                line = sys.stdin.readline()
+                if not line:          # EOF: piped input ran out, or Ctrl-D
                     break
-                line = line.rstrip("\n")
+                line = line.rstrip("\r\n")
                 if line.startswith("/"):
                     if not self.command(line):
                         break
