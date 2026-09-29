@@ -19,7 +19,14 @@ public: std::string s;
   String(unsigned int v){char b[32];sprintf(b,"%u",v);s=b;}
   String(long v){char b[32];sprintf(b,"%ld",v);s=b;}
   String(double v,int=2){char b[32];sprintf(b,"%f",v);s=b;}
-  void trim(){} void toUpperCase(){}
+  /* These were no-ops, so any test touching handleCommand() was exercising a
+   * parser that never trimmed or folded case -- unlike the real String. */
+  void trim(){ size_t b=s.find_first_not_of(" \t\r\n");
+               if(b==std::string::npos){s.clear();return;}
+               size_t e=s.find_last_not_of(" \t\r\n"); s=s.substr(b,e-b+1); }
+  void toUpperCase(){ for(auto&c:s) c=toupper((unsigned char)c); }
+  bool startsWith(const char*p)const{ return s.rfind(p,0)==0; }
+  char operator[](unsigned i)const{ return i<s.size()?s[i]:0; }
   int indexOf(char c)const{size_t p=s.find(c);return p==std::string::npos?-1:(int)p;}
   String substring(int a)const{return String(s.substr(a).c_str());}
   String substring(int a,int b)const{return String(s.substr(a,b-a).c_str());}

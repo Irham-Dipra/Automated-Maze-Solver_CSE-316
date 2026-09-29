@@ -8,7 +8,7 @@ SKETCH=../Phase5_ESP32_Brain/Phase5_ESP32_Brain.ino
 
 sed -e 's/^void setup(/void sketch_setup(/' -e 's/^void loop(/void sketch_loop(/' "$SKETCH" > body.inc
 sed -i '1i #include <Arduino.h>' body.inc
-trap 'rm -f body.inc t_latch t_junction t_creep t_front' EXIT
+trap 'rm -f body.inc t_latch t_junction t_creep t_front t_path t_replay' EXIT
 
 fail=0
 
@@ -29,6 +29,16 @@ echo
 echo "=== creep to the park point ==="
 g++ -I stub -std=gnu++17 -o t_creep test_creep.cpp
 if ./t_creep; then :; else fail=1; fi
+
+echo
+echo "=== shortest path: dead-end elimination ==="
+g++ -I stub -std=gnu++17 -o t_path test_path.cpp
+if ./t_path; then :; else fail=1; fi
+
+echo
+echo "=== speed run: following a stored route ==="
+g++ -I stub -std=gnu++17 -o t_replay test_replay.cpp
+if ./t_replay; then :; else fail=1; fi
 
 echo
 echo "=== front wall detection and heading-target stability ==="

@@ -87,6 +87,7 @@
 #include <Wire.h>
 #include <Adafruit_VL53L0X.h>
 #include <BluetoothSerial.h>
+#include <Preferences.h>
 #include "esp_system.h"
 #include <stdarg.h>
 #include <math.h>
@@ -1424,9 +1425,110 @@ uint32_t s_creep_until = 0;
 #define BLOCK_WALL_CONFIRM  2       /* wall sightings needed to release     */
 bool      pend_right = true;
 bool      pend_180 = false;
+/* A junction stays in the side sensors' view for the best part of a second.
+ * This marks one as already dealt with, so it is acted on once rather than
+ * eighty times -- recorded once while exploring, and consuming exactly one
+ * route symbol on a speed run. */
+bool      s_junction_acted = false;
 
 char      g_path[128];
 int       g_path_len = 0;
+
+/* ==========================================================================
+ *  SHORTEST PATH  --  dead-end elimination on the turn string
+ *
+ *  A 'U' in the explored path means "drove into a dead end and came back".
+ *  The move before it and the move after it happened at the SAME junction --
+ *  nothing else was recorded in between, which is exactly what makes them
+ *  adjacent in the string -- so the three collapse into the one move that
+ *  skips the dead end. Repeat to a fixpoint and what is left is the route
+ *  with every dead end removed. No distances, no grid, no coordinates.
+ *
+ *  Writing each move as a quarter turn, counter-clockwise positive:
+ *
+ *      S = 0    L = +1    U = +2    R = +3 (== -1)
+ *
+ *  a U b  ->  (a + 2 + b) mod 4.  That single line generates the whole
+ *  nine-case LSRB table; there is nothing to look up and nothing to mistype.
+ * ======================================================================== */
+char      g_short[96];              /* the reduced route                    */
+int       g_short_len = 0;
+bool      g_replay = false;         /* mode 4: follow g_short, do not record */
+int       g_replay_idx = 0;
+
+/* The route has to outlive a power cycle: between exploring and the speed
+ * run the robot is picked up and carried back to the start, and on this
+ * chassis that regularly means a battery coming off. Keeping it only in RAM
+ * would mean re-exploring every time. */
+Preferences g_nvs;
+
+void pathSave(void) {
+    if (!g_nvs.begin("maze", false)) { LOG("  (could not open flash to save)"); return; }
+    g_nvs.putString("short", g_short);
+    g_nvs.end();
+    LOG("  saved to flash -- survives a power cycle");
+}
+
+void pathLoad(void) {
+    if (!g_nvs.begin("maze", true)) return;          /* read-only */
+    String v = g_nvs.getString("short", "");
+    g_nvs.end();
+    if (!v.length() || v.length() >= sizeof(g_short)) return;
+    strncpy(g_short, v.c_str(), sizeof(g_short) - 1);
+    g_short[sizeof(g_short) - 1] = 0;
+    g_short_len = strlen(g_short);
+}
+
+static int moveQuarters(char c) {
+    switch (c) { case 'L': return 1; case 'U': return 2; case 'R': return 3;
+                 default: return 0; }
+}
+static char quartersMove(int q) {
+    switch (q & 3) { case 1: return 'L'; case 2: return 'U'; case 3: return 'R';
+                     default: return 'S'; }
+}
+
+/* 0 = reduced cleanly, 1 = a U survived, 2 = nothing to reduce / too long. */
+int reducePath(const char *raw, int raw_len, char *out, int out_cap, int *out_len) {
+    *out_len = 0;
+    if (out_cap > 0) out[0] = 0;
+    if (raw_len <= 0)            return 2;
+    if (raw_len + 2 > out_cap)   return 2;
+
+    int n = 0;
+    for (int i = 0; i < raw_len; i++) out[n++] = raw[i];
+
+    /* The run ends by driving out of the exit, which is not a junction and so
+     * records nothing. Without a move after the final U there is nothing to
+     * fold it into and the last dead end survives -- precisely the trailing
+     * "RU" that should have become a single left. Append the straight-on that
+     * really happens, and strip it again afterwards. */
+    out[n++] = 'S';
+    out[n] = 0;
+
+    for (bool again = true; again; ) {
+        again = false;
+        for (int i = 1; i + 1 < n; i++) {
+            if (out[i] != 'U') continue;
+            out[i - 1] = quartersMove(moveQuarters(out[i - 1]) + 2 +
+                                      moveQuarters(out[i + 1]));
+            memmove(out + i, out + i + 2, (size_t)(n - (i + 2)));
+            n -= 2;
+            out[n] = 0;
+            again = true;
+            break;                  /* the collapse may expose another pair */
+        }
+    }
+
+    /* A trailing S says "carry straight on past the last junction", which is
+     * what the robot does anyway once the list runs out. Drop it, sentinel
+     * and all. A LEADING S is real: it is the first junction. */
+    while (n > 0 && out[n - 1] == 'S') out[--n] = 0;
+
+    *out_len = n;
+    for (int i = 0; i < n; i++) if (out[i] == 'U') return 1;
+    return 0;
+}
 
 void enterState(MazeState s) {
     g_state = s;
@@ -1441,6 +1543,10 @@ void enterState(MazeState s) {
 bool inStateFor(uint32_t ms) { return millis() - g_state_t0 >= ms; }
 
 void recordTurn(char c) {
+    /* A speed run follows a path, it does not discover one. Recording during
+     * replay would append the replayed moves to the explored string and make
+     * the second run unrepeatable. */
+    if (g_replay) return;
     if (g_path_len < (int)sizeof(g_path) - 1) g_path[g_path_len++] = c;
     g_path[g_path_len] = 0;
     LOGf("PATH: %s", g_path);
@@ -1528,6 +1634,125 @@ Junction classify(void) {
 /* RIGHT-HAND RULE: always take the rightmost available opening. Unlike
  * mahee's random chooser this is deterministic, which is what makes the
  * recorded path in g_path worth anything. */
+/* Reduce the just-explored path, report it, and keep it for the speed run.
+ * Called once, at the exit. */
+void finishExploration(void) {
+    int n = 0;
+    int rc = reducePath(g_path, g_path_len, g_short, sizeof(g_short), &n);
+
+    if (rc == 2) {
+        LOG("no path to shorten -- nothing was recorded");
+        g_short_len = 0; g_short[0] = 0;
+        return;
+    }
+    if (rc == 1) {
+        /* A surviving U means the reduction could not account for the route:
+         * a loop in the maze, or a junction one run saw and the other did
+         * not. Driving it would be guessing, so it is not offered. */
+        LOGf("  reduced to: %s", g_short);
+        LOG("  REJECTED -- a turn-around survived the reduction.");
+        LOG("  That means either the maze has a loop, or a junction was");
+        LOG("  missed. MODE:4 needs a route it can trust, so it stays");
+        LOG("  unset. Explore again, or set one by hand with PATH:<moves>.");
+        g_short_len = 0; g_short[0] = 0;
+        return;
+    }
+
+    g_short_len = n;
+    LOGf("  SHORTEST: %s   (%d moves, was %d)", g_short, g_short_len, g_path_len);
+    pathSave();
+    LOG("  Put the robot back at the start, then MODE:4 and START.");
+}
+
+/* ==========================================================================
+ *  SPEED RUN  --  follow g_short instead of the right-hand rule
+ *
+ *  One symbol is consumed per junction. That accounting is exact rather than
+ *  hopeful: in "a U b" all three moves happen at the SAME junction, because
+ *  anything in between would have been recorded and they would not be
+ *  adjacent. So a collapse turns three symbols at one junction into one
+ *  symbol at one junction, and the count still matches the maze.
+ *
+ *  What it cannot survive is disagreeing with the exploration run about what
+ *  IS a junction. Miscount once and every later symbol lands in the wrong
+ *  place -- the robot does not drift, it drives somewhere else entirely. So
+ *  every move is checked against what the sensors actually see before it is
+ *  committed, and a mismatch stops the run instead of turning into a wall.
+ * ======================================================================== */
+void replayFail(const char *why) {
+    driveStopHard();
+    LOG("");
+    LOG("*** SPEED RUN OUT OF STEP -- stopping ***");
+    LOGf("  %s", why);
+    LOGf("  at symbol %d of %d (%s)", g_replay_idx + 1, g_short_len, g_short);
+    LOG("  The route no longer matches the maze. Re-run MODE:3 to explore");
+    LOG("  again, or check the robot started from the same place and heading.");
+    g_running = false;
+    enterState(ST_IDLE);
+}
+
+/* Decide what to do at a junction during a speed run. */
+void replayAtJunction(Junction j) {
+    /* Plain corridor: nothing to consume, and the next junction is a new one.
+     * Owning the latch here rather than relying on the caller means a symbol
+     * can never be spent on a stretch of corridor -- which is the one mistake
+     * that puts every later move at the wrong junction. */
+    if (j == J_CORRIDOR) { s_junction_acted = false; return; }
+
+    /* Does this junction still allow driving through it? */
+    bool blocks_straight = (j == J_DEAD_END    || j == J_FORCED_LEFT ||
+                            j == J_FORCED_RIGHT || j == J_LEFT_OR_RIGHT);
+
+    /* One action per junction. Without this, passing a junction straight
+     * consumed the S on one tick and then, with the junction still sitting in
+     * the side sensors, consumed the NEXT symbol a tick later at the very
+     * same junction -- committing to a turn the route meant for somewhere
+     * else. A turn leaves ST_DRIVING immediately so it cannot repeat, but an
+     * S does not, which is what made the two branches disagree.
+     *
+     * A wall appearing ahead is the one thing that reopens the question. The
+     * side sensors see an opening well before the front sensor believes in a
+     * wall beyond it, so a junction can legitimately read "straight or left"
+     * and then become "forced left" while still in view. Exploration handles
+     * that by re-running chooseTurn every tick and recording S then L, so the
+     * route holds both -- and the replay has to be able to spend both, or it
+     * would sit latched and drive into the wall it can see. */
+    if (s_junction_acted && !blocks_straight) return;
+    if (blocks_straight) s_junction_acted = false;
+
+    if (g_replay_idx >= g_short_len) {
+        /* Out of moves but still meeting junctions. The exit is handled
+         * before this is ever reached, so this is a genuine mismatch. */
+        replayFail("the route is finished but the maze still has turnings");
+        return;
+    }
+    char want = g_short[g_replay_idx];
+
+    if (want == 'S') {
+        /* Straight on -- but never into a wall. */
+        if (blocks_straight) {
+            replayFail("the route says go straight, but the way ahead is blocked");
+            return;
+        }
+        s_junction_acted = true;
+        g_replay_idx++;
+        LOGf("[%d/%d] S -- straight on", g_replay_idx, g_short_len);
+        return;
+    }
+
+    if (want != 'L' && want != 'R') {
+        replayFail("the route contains a turn-around, which is never a shortest path");
+        return;
+    }
+
+    pend_right = (want == 'R');
+    pend_180   = false;
+    s_junction_acted = true;
+    g_replay_idx++;
+    LOGf("[%d/%d] %c -- approaching the junction", g_replay_idx, g_short_len, want);
+    enterState(ST_APPROACHING);
+}
+
 bool chooseTurn(Junction j, bool &turn_now, bool &right) {
     turn_now = true;
     switch (j) {
@@ -1589,6 +1814,8 @@ void mazeTick(void) {
             break;
         }
         if (j != J_CORRIDOR) {
+            if (g_replay) { replayAtJunction(j); break; }
+
             bool turn_now, right;
             chooseTurn(j, turn_now, right);
             if (turn_now) {
@@ -1598,12 +1825,30 @@ void mazeTick(void) {
                 pend_180 = (j == J_DEAD_END);
                 enterState(ST_APPROACHING);   /* drive the axle to the opening */
             } else {
-                /* chose to continue straight: suppress re-triggering on this
-                 * same opening until it has passed out of view */
-                cnt_open_l = cnt_open_r = 0;
+                /* Carrying straight on past a turning is a decision, and the
+                 * shortest-path reduction cannot work without it: it folds
+                 * the move before a dead end together with the move after,
+                 * and those are only adjacent in the string if everything in
+                 * between was written down.
+                 *
+                 * The counters are deliberately NOT cleared here any more.
+                 * Zeroing them made classify() flip back to J_CORRIDOR on the
+                 * next tick and then rediscover the same opening five ticks
+                 * later, over and over, which would write an S per cycle for
+                 * as long as the opening stayed in view. Leaving them alone
+                 * keeps this branch selected for exactly as long as the
+                 * junction is really there, and the latch below records it
+                 * once. Re-running chooseTurn every tick still means a front
+                 * wall closing in turns this into a FORCED turn immediately,
+                 * so nothing is suppressed that matters. */
+                if (!s_junction_acted) {
+                    recordTurn('S');
+                    s_junction_acted = true;
+                }
             }
             break;
         }
+        s_junction_acted = false;     /* corridor again: the next one is new */
         /* safety net for a wall the ToF never saw (angled or dark surfaces
          * reflect the beam away and read as clear) */
         if (millis() - g_leg_t0 > MAX_LEG_MS) {
@@ -1675,8 +1920,14 @@ void mazeTick(void) {
                 driveStop();
                 LOG("");
                 LOG("========================");
-                LOGf("MAZE COMPLETE. PATH: %s", g_path);
-                LOG("========================");
+                if (g_replay) {
+                    LOGf("SPEED RUN COMPLETE. ROUTE: %s", g_short);
+                    LOG("========================");
+                } else {
+                    LOGf("MAZE COMPLETE. PATH: %s", g_path);
+                    LOG("========================");
+                    finishExploration();
+                }
                 enterState(ST_FINISHED);
             } else {
                 enterState(ST_DRIVING);
@@ -1809,6 +2060,23 @@ void mazeTick(void) {
         bool left_open  = tofOpen(S_LEFT)  && (s_blocked_side != S_LEFT);
         bool front_wall = frontBlocked();
 
+        /* A speed run has already chosen; this stop is only to look before
+         * committing. Verify the opening is really there -- a turn taken on a
+         * route that has slipped out of step is a turn into a wall. */
+        if (g_replay) {
+            LOGf("at junction: F:%s L:%s R:%s -> route says %s",
+                 rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
+                 rangeStr(S_RIGHT).c_str(), pend_right ? "RIGHT" : "LEFT");
+            if (pend_right && !right_open) {
+                replayFail("the route says turn right, but the right is a wall");
+            } else if (!pend_right && !left_open) {
+                replayFail("the route says turn left, but the left is a wall");
+            } else {
+                enterState(ST_DECIDING);
+            }
+            break;
+        }
+
         LOGf("at junction: F:%s L:%s R:%s -> %s",
              rangeStr(S_FRONT).c_str(), rangeStr(S_LEFT).c_str(),
              rangeStr(S_RIGHT).c_str(),
@@ -1882,10 +2150,11 @@ void mazeTick(void) {
 /* ==========================================================================
  *  11. BLUETOOTH COMMAND MENU
  * ======================================================================== */
-const char *MODE_NAME[4] = { "SENSORS-ONLY", "STRAIGHT-TEST", "TURN-TEST", "MAZE" };
+const char *MODE_NAME[5] = { "SENSORS-ONLY", "STRAIGHT-TEST", "TURN-TEST",
+                             "MAZE-EXPLORE", "SPEED-RUN" };
 
 const char *modeName(int m) {
-    return (m >= 0 && m <= 3) ? MODE_NAME[m] : "INVALID";
+    return (m >= 0 && m <= 4) ? MODE_NAME[m] : "INVALID";
 }
 
 void printMenu(void) {
@@ -1897,7 +2166,12 @@ void printMenu(void) {
     LOGf("  CURRENT MODE : %d (%s)", cfg_mode, modeName(cfg_mode));
     LOGf("  STATE        : %s", g_running ? "RUNNING" : "IDLE - send START to run");
     LOG("  --------------------------------");
-    LOGf("  MODE:%d   0=sensors 1=straight 2=turn-test 3=maze", cfg_mode);
+    LOGf("  MODE:%d   0=sensors 1=straight 2=turn-test 3=explore 4=speed-run",
+         cfg_mode);
+    if (g_short_len)
+        LOGf("  ROUTE    : %s   (%d moves -- MODE:4 runs it)", g_short, g_short_len);
+    else
+        LOG("  ROUTE    : none yet -- run MODE:3 to the exit, or PATH:<moves>");
     LOGf("  BL:%d     base PWM          MN:%d  stall floor", cfg_base_pwm, cfg_min_pwm);
     LOGf("  MX:%d     max PWM           TP:%d  pivot PWM",   cfg_max_pwm, cfg_turn_pwm);
     LOGf("  LT:%d     left trim %%       RT:%d  right trim %%", cfg_left_trim, cfg_right_trim);
@@ -1951,6 +2225,8 @@ void resetRunState(void) {
     s_block_wall_hits = 0;
     g_stalled = false;
     g_path_len = 0; g_path[0] = 0;
+    g_replay_idx = 0;
+    s_junction_acted = false;
     cnt_open_l = cnt_open_r = cnt_block_f = cnt_deadend = 0;
     tofFlush();
     headingReset();
@@ -1982,7 +2258,13 @@ void handleCommand(String c) {
         /* Without a front sensor frontBlocked() is permanently false, so the
          * robot never believes in a wall ahead and drives into the first one
          * at full speed. That is not a degraded mode worth offering. */
-        if (cfg_mode == 3 && !st[S_FRONT].present) {
+        if (cfg_mode == 4 && g_short_len == 0) {
+            LOG("refusing to start the speed run: no route stored.");
+            LOG("  Run MODE:3 through to the exit first, or set one by hand");
+            LOG("  with PATH:SRL  (S straight, L left, R right).");
+            return;
+        }
+        if ((cfg_mode == 3 || cfg_mode == 4) && !st[S_FRONT].present) {
             LOG("refusing to start the maze: FRONT sensor never initialised.");
             LOG("  Without it the robot cannot see walls ahead and will drive");
             LOG("  into them. Check the wiring and XSHUT on GPIO19, or swap the");
@@ -1995,7 +2277,12 @@ void handleCommand(String c) {
             return;
         }
         g_abort = false;            /* clear any latched abort from last STOP */
+        /* Set BEFORE resetRunState so nothing can record into g_path on the
+         * way in, and before the first tick so ST_DRIVING takes the right
+         * branch from the outset. */
+        g_replay = (cfg_mode == 4);
         resetRunState();
+        if (g_replay) LOGf("following route: %s  (%d moves)", g_short, g_short_len);
         g_running = true;
         g_run_t0 = millis();
         enterState(ST_STARTUP);
@@ -2032,6 +2319,40 @@ void handleCommand(String c) {
         return;
     }
 
+    /* PATH is handled before the numeric split below, which would turn a
+     * route like "SRL" into the float 0. */
+    if (c == "PATH") {
+        LOGf("explored: %s", g_path_len ? g_path : "(none)");
+        LOGf("route   : %s", g_short_len ? g_short : "(none)");
+        g_quiet_until = millis() + MENU_QUIET_MS;
+        return;
+    }
+    if (c.startsWith("PATH:")) {
+        if (g_running) { LOG("send STOP before changing the route"); return; }
+        String v = c.substring(5);
+        v.trim();
+        if (v == "CLEAR") {
+            g_short_len = 0; g_short[0] = 0;
+            pathSave();
+            LOG("route cleared");
+            return;
+        }
+        if (v.length() >= sizeof(g_short)) { LOG("? route too long"); return; }
+        for (unsigned i = 0; i < v.length(); i++) {
+            char ch = v[i];
+            if (ch != 'S' && ch != 'L' && ch != 'R') {
+                LOGf("? '%c' is not a move -- use only S, L and R", ch);
+                return;
+            }
+        }
+        strncpy(g_short, v.c_str(), sizeof(g_short) - 1);
+        g_short[sizeof(g_short) - 1] = 0;
+        g_short_len = strlen(g_short);
+        LOGf("route set: %s  (%d moves)", g_short, g_short_len);
+        pathSave();
+        return;
+    }
+
     int colon = c.indexOf(':');
     if (colon < 0) { LOG("? unknown command -- send MENU"); return; }
     String k = c.substring(0, colon);
@@ -2043,7 +2364,7 @@ void handleCommand(String c) {
      * account for. */
     if (k == "MODE") {
         int m = (int)v;
-        if (m < 0 || m > 3) { LOG("? mode must be 0, 1, 2 or 3"); return; }
+        if (m < 0 || m > 4) { LOG("? mode must be 0, 1, 2, 3 or 4"); return; }
         if (g_running) {
             LOGf("send STOP first -- still running mode %d (%s)",
                  cfg_mode, modeName(cfg_mode));
@@ -2196,6 +2517,10 @@ void setup() {
     headingReset();
     tofFlush();
 
+    /* A route from a previous session, if one was saved. Loaded before the
+     * menu so the menu can report it. */
+    pathLoad();
+
     printMenu();
     LOG("Send START when the robot is in the maze.");
     g_run_t0 = millis();
@@ -2268,7 +2593,9 @@ void loop() {
             break;
         }
 
-        default:                                  /* full maze               */
+        case 3:                                   /* explore                 */
+        case 4:                                   /* speed run               */
+        default:
             mazeTick();
             if (g_abort) { driveStop(); g_running = false; enterState(ST_IDLE); break; }
             if (millis() - g_run_t0 > MAX_RUN_MS) {

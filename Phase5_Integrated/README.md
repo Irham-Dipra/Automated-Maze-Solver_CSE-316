@@ -441,7 +441,7 @@ clamp both to MX
 
 | Key | Unit | Default | What it is |
 |---|---|---|---|
-| `MODE` | 0–3 | 3 | 0 sensors, 1 straight, 2 turn test, 3 maze |
+| `MODE` | 0–4 | 3 | 0 sensors, 1 straight, 2 turn test, 3 explore, 4 speed run |
 | `BL` | PWM | 110 | base speed both wheels before steering |
 | `MN` | PWM | 60 | **running** stall floor — below this the wheels buzz but don't turn |
 | `MX` | PWM | 230 | hard ceiling after trim |
@@ -529,6 +529,70 @@ python3 maze_monitor.py --port /dev/rfcomm0
 connected the PC cannot get in, and the failure looks like a dead robot rather
 than a busy one. Disconnect the phone first. If a connection still fails the
 monitor names the cause from the errno rather than printing a bare timeout.
+
+## 5c. Shortest path (MODE:3 explores, MODE:4 runs it)
+
+`MODE:3` solves the maze by the right-hand rule and records what it did.
+`MODE:4` then drives the same maze with every dead end removed. There is no
+grid, no coordinates and no distance measurement anywhere in this — it works
+on the turn string alone.
+
+**The rule.** A `U` in the path means "drove into a dead end and came back".
+The move before it and the move after it happened at the *same junction* —
+nothing else was recorded in between, which is exactly what makes them
+adjacent — so the three collapse into the single move that skips the dead
+end. Write each move as a quarter turn, counter-clockwise positive:
+
+```
+S = 0      L = +1      U = +2      R = +3  (= -1)
+
+a U b   ->   (a + 2 + b) mod 4
+```
+
+That one line generates the whole nine-case LSRB table. `R U S` is
+`3 + 2 + 0 = 5 mod 4 = 1` = `L`: arrive, poke into a dead end on the right,
+come back, carry on — same as just turning left. Repeat to a fixpoint.
+
+**Straights are recorded, and they matter.** A junction the robot passes
+without turning writes an `S`. Without it the moves either side of a `U` look
+adjacent when they are not, and the reduction silently produces a different
+route:
+
+```
+true   R S U R   ->  R S U R  ->  R L      correct
+missing S:  R U R  ->  S                   wrong maze, no error
+```
+
+**A surviving `U` is refused, not driven.** If the reduction cannot remove
+every `U`, the maze has a loop or a junction was missed. `MODE:4` is left
+unset rather than offered a route nobody can vouch for.
+
+**Staying in step.** The speed run spends one symbol per junction. That
+accounting is exact — a collapse turns three symbols at one junction into one
+symbol at one junction — but it depends on both runs agreeing about what *is*
+a junction. Miscount once and every later move lands somewhere else, so every
+move is checked against the sensors before it is committed: if the route says
+turn right and the right is a wall, the run stops and says so rather than
+turning into it.
+
+**Using it**
+
+```
+MODE:3            explore. At the exit it prints
+                    MAZE COMPLETE. PATH: RSURURRRRU
+                    SHORTEST: SRL   (3 moves, was 10)
+                  and saves the route to flash
+MODE:4  START     put the robot back at the start first
+```
+
+| Command | |
+|---|---|
+| `PATH` | show the explored path and the current route |
+| `PATH:SRL` | set the route by hand — useful if an exploration run goes badly and you already know the answer |
+| `PATH:CLEAR` | forget it |
+
+The route survives a power cycle, which matters because carrying the robot
+back to the start on this chassis usually means a battery coming off.
 
 ## 6. Regression test (runs on a PC, no robot needed)
 
