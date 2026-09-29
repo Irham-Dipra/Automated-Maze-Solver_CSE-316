@@ -288,6 +288,13 @@
 #define DEF_KW              0.020f   /* deg of heading target per mm of
                                         wall-centring error                 */
 #define WALL_TILT_MAX_DEG    8.0f
+/* Most the heading target may move in one 20 ms tick. Without this a side
+ * reading that flickers between a number and out-of-range whips the target
+ * across its whole range in a single tick -- the 10:35:24 log swings it from
+ * +5.1 to -8.0 and back to 0 in three ticks. The heading controller then
+ * chases a target that is pure noise, which reads as "KP cannot hold it
+ * straight" when KP is in fact tracking faithfully. */
+#define WALL_TILT_SLEW_DEG   2.0f
 #define CORR_RATIO_PCT        40     /* max |corr| as % of base PWM         */
 #define YAW_GOVERNOR_DPS    60.0f    /* stop winding up past this rate      */
 
@@ -471,6 +478,17 @@ int wallRefMm(void) {
  * spots the opening -- using the front sensor's offset overshoots by the gap
  * between them. Used only when there is no front wall to range off. */
 int approachMm(void) { return cfg_side_axle + cfg_corridor_w / 2; }
+
+/* The largest a SIDE sensor can read and still be looking at a corridor wall:
+ * chassis hard against the opposite wall, so the gap is (CW - RW), plus the
+ * distance the sensor sits inside the widest point, (RW - SS)/2. Anything
+ * beyond this is not a wall to centre against -- it is the mouth of an
+ * opening, and steering to hold a fixed distance from it walks the robot into
+ * the wall behind. */
+int maxWallMm(void) {
+    int v = cfg_corridor_w - cfg_robot_w / 2 - cfg_span / 2;
+    return (v < 20) ? 20 : v;
+}
 
 /* Radius of the circle the furthest chassis corner sweeps while pivoting.
  * Checked against the half-corridor so an impossible geometry is reported at
@@ -1090,21 +1108,39 @@ void checkStall(void) {
 }
 
 void driveTick(void) {
-    bool l_ok = tofValid(S_LEFT);
-    bool r_ok = tofValid(S_RIGHT);
     int  l_mm = tofMedian(S_LEFT);
     int  r_mm = tofMedian(S_RIGHT);
+    /* tofValid() judges p.latest, but the value used below is the MEDIAN, and
+     * the two disagree whenever the newest sample is in range while the
+     * median still holds the out-of-range clamp. The side then counts as
+     * usable while feeding TOF_MAX_RANGE_MM into the centring maths, which
+     * slams the target straight to its clamp -- the Tgt:-8.0 alongside R:oo
+     * at 10:35:24.871. Judge and use the same number. */
+    bool l_ok = tofValid(S_LEFT)  && l_mm < TOF_MAX_RANGE_MM;
+    bool r_ok = tofValid(S_RIGHT) && r_mm < TOF_MAX_RANGE_MM;
 
     /* --- wall-centring, expressed as a heading TARGET ------------------- */
+    /* With BOTH walls the error is a difference, so it stays meaningful
+     * however wide the corridor. With only one, it is measured against a
+     * fixed reference -- which is only valid if that reading really is a
+     * corridor wall. A left sensor reading 275 against a 147 reference is the
+     * edge of an opening, and holding station off it steers the robot into
+     * whatever is on the other side. */
     float wall_err_mm = 0;
-    if (l_ok && r_ok)        wall_err_mm = (float)(r_mm - l_mm);        /* width-independent */
-    else if (l_ok)           wall_err_mm = (float)(wallRefMm() - l_mm) * 2.0f;
-    else if (r_ok)           wall_err_mm = (float)(r_mm - wallRefMm()) * 2.0f;
+    if (l_ok && r_ok)                       wall_err_mm = (float)(r_mm - l_mm);
+    else if (l_ok && l_mm <= maxWallMm())   wall_err_mm = (float)(wallRefMm() - l_mm) * 2.0f;
+    else if (r_ok && r_mm <= maxWallMm())   wall_err_mm = (float)(r_mm - wallRefMm()) * 2.0f;
 
     /* more room on the right -> aim a few degrees right (negative heading) */
-    g_target_heading = -cfg_kw * wall_err_mm;
-    if (g_target_heading >  WALL_TILT_MAX_DEG) g_target_heading =  WALL_TILT_MAX_DEG;
-    if (g_target_heading < -WALL_TILT_MAX_DEG) g_target_heading = -WALL_TILT_MAX_DEG;
+    float want = -cfg_kw * wall_err_mm;
+    if (want >  WALL_TILT_MAX_DEG) want =  WALL_TILT_MAX_DEG;
+    if (want < -WALL_TILT_MAX_DEG) want = -WALL_TILT_MAX_DEG;
+    {   /* rate-limit it, so a flickering sensor cannot whip the target */
+        float d = want - g_target_heading;
+        if (d >  WALL_TILT_SLEW_DEG) d =  WALL_TILT_SLEW_DEG;
+        if (d < -WALL_TILT_SLEW_DEG) d = -WALL_TILT_SLEW_DEG;
+        g_target_heading += d;
+    }
 
     /* --- EMERGENCY: wall closer than the gentle heading bias can handle ----
      * Fires on the sub-measurable "too close" flag OR on a valid reading
@@ -1388,15 +1424,24 @@ void updateCameFromBlock(void) {
 void updateDebounce(void) {
     updateCameFromBlock();
 
-    if (tofOpen(S_LEFT))  { if (cnt_open_l  < 255) cnt_open_l++;  } else cnt_open_l  = 0;
-    if (tofOpen(S_RIGHT)) { if (cnt_open_r  < 255) cnt_open_r++;  } else cnt_open_r  = 0;
+    /* Decide ONCE what counts as open, and use that everywhere below.
+     *
+     * These used to disagree: the counters had the came-from block applied
+     * but the dead-end test called tofOpen() directly. So after a right turn,
+     * with a wall ahead and a wall on the left, the right still read open to
+     * the dead-end test (killing cnt_deadend) while the counters saw it as
+     * closed. classify() then matched none of its cases and fell through to
+     * J_CORRIDOR -- "nothing here, carry on" -- with a wall dead ahead. The
+     * 10:35:16 log is exactly this: F goes 320, 280, 238, 191, 138, 92, 45
+     * with fv:5 the whole way, and the state never leaves DRIVING. */
+    bool l_open = tofOpen(S_LEFT)  && (s_blocked_side != S_LEFT);
+    bool r_open = tofOpen(S_RIGHT) && (s_blocked_side != S_RIGHT);
 
-    /* The side we arrived from is not a turning, whatever the sensor says. */
-    if (s_blocked_side == S_LEFT)  cnt_open_l = 0;
-    if (s_blocked_side == S_RIGHT) cnt_open_r = 0;
-    if (frontBlocked())   { if (cnt_block_f < 255) cnt_block_f++; } else cnt_block_f = 0;
+    if (l_open) { if (cnt_open_l  < 255) cnt_open_l++;  } else cnt_open_l  = 0;
+    if (r_open) { if (cnt_open_r  < 255) cnt_open_r++;  } else cnt_open_r  = 0;
+    if (frontBlocked()) { if (cnt_block_f < 255) cnt_block_f++; } else cnt_block_f = 0;
 
-    if (frontBlocked() && !tofOpen(S_LEFT) && !tofOpen(S_RIGHT)) {
+    if (frontBlocked() && !l_open && !r_open) {
         if (cnt_deadend < 255) cnt_deadend++;
     } else cnt_deadend = 0;
 }
@@ -1413,6 +1458,13 @@ Junction classify(void) {
     if ( fw &&  lo &&  ro)               return J_LEFT_OR_RIGHT;
     if ( fw &&  lo && !ro)               return J_FORCED_LEFT;
     if ( fw && !lo &&  ro)               return J_FORCED_RIGHT;
+
+    /* A wall ahead with nowhere to turn is a dead end, never a clear
+     * corridor. Falling through to J_CORRIDOR here is what let the robot
+     * drive into a wall at full speed while the front sensor was reporting
+     * it perfectly well. Whatever else is uncertain, never answer "carry
+     * straight on" while the front is blocked. */
+    if (fw) return J_DEAD_END;
     return J_CORRIDOR;
 }
 
